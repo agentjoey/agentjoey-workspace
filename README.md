@@ -1,159 +1,206 @@
-# Turborepo starter
+# AgentJoey Workspace 🚀
 
-This Turborepo starter is maintained by the Turborepo core team.
+一个基于 **Turborepo** 的 monorepo，用于管理所有的产品项目。
 
-## Using this example
+## 📦 项目结构
 
-Run the following command:
-
-```sh
-npx create-turbo@latest
+```
+agentjoey-workspace/
+├── apps/                    # 应用程序
+│   ├── website/            # 主网站
+│   ├── dashboard/          # SaaS 管理面板 (计划中)
+│   ├── api-service/        # API 服务 (计划中)
+│   └── documentation/      # 文档站点
+│
+├── packages/               # 共享包
+│   ├── ui/                 # UI 组件库
+│   ├── utils/              # 工具函数
+│   ├── hooks/              # React Hooks
+│   ├── eslint-config/      # ESLint 配置
+│   └── typescript-config/  # TypeScript 配置
+│
+└── turbo.json              # Turborepo 配置
 ```
 
-## What's inside?
+## 🚀 快速开始
 
-This Turborepo includes the following packages/apps:
+### 前置要求
+- Node.js >= 18
+- npm >= 9
 
-### Apps and Packages
+### 安装
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+```bash
+# Clone 仓库
+git clone https://github.com/agentjoey/agentjoey-workspace.git
+cd agentjoey-workspace
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+# 安装依赖
+npm install
 ```
 
-Without global `turbo`, use your package manager:
+### 开发
 
-```sh
-cd my-turborepo
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
+```bash
+# 启动所有应用的开发模式
+npm run dev
+
+# 只启动 website
+cd apps/website && npm run dev
+
+# 只启动 dashboard
+cd apps/dashboard && npm run dev
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### 构建
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+```bash
+# 构建所有应用和包
+npm run build
 
-```sh
-turbo build --filter=docs
+# 构建特定应用
+cd apps/website && npm run build
 ```
 
-Without global `turbo`:
+### 其他命令
 
-```sh
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+```bash
+# 代码检查
+npm run lint
+
+# 类型检查
+npm run check-types
+
+# 格式化代码
+npm run format
 ```
 
-### Develop
+## 🏗️ 技术栈
 
-To develop all apps and packages, run the following command:
+- **Framework**: Next.js 14+
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **UI Components**: 自定义 + shadcn/ui
+- **Build Tool**: Turborepo
+- **Package Manager**: npm workspaces
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+## 📚 应用说明
 
-```sh
-cd my-turborepo
-turbo dev
+### website
+- **端口**: 3000
+- **描述**: 主网站和落地页
+- **技术**: Next.js App Router + Tailwind
+
+### dashboard (计划中)
+- **端口**: 3001
+- **描述**: AI 代理管理面板
+- **技术**: Next.js + 数据可视化
+
+### api-service (计划中)
+- **端口**: 3002
+- **描述**: 后端 API 服务
+- **技术**: Next.js API Routes / Express
+
+## 📦 共享包
+
+### @workspace/ui
+UI 组件库，包含设计系统的所有组件。
+
+```tsx
+import { Button, Card } from '@workspace/ui';
 ```
 
-Without global `turbo`, use your package manager:
+### @workspace/utils
+通用工具函数。
 
-```sh
-cd my-turborepo
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
+```ts
+import { formatDate, cn } from '@workspace/utils';
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### @workspace/hooks
+React Hooks。
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
+```tsx
+import { useAuth, useLocalStorage } from '@workspace/hooks';
 ```
 
-Without global `turbo`:
+## 🛠️ 开发指南
 
-```sh
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
+### 添加新应用
+
+```bash
+cd apps
+npx create-next-app@latest my-app --typescript --tailwind
+# 更新 turbo.json 和根 package.json
 ```
 
-### Remote Caching
+### 添加新包
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
+```bash
+cd packages
+mkdir my-package && cd my-package
+npm init -y
+# 配置 package.json name 为 @workspace/my-package
 ```
 
-Without global `turbo`, use your package manager:
+### 最佳实践
 
-```sh
-cd my-turborepo
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
+1. **依赖管理**
+   - 共享依赖放在根 `package.json`
+   - 应用特有依赖放在各自 `package.json`
+
+2. **代码复用**
+   - UI 组件 → `@workspace/ui`
+   - 工具函数 → `@workspace/utils`
+   - 业务逻辑 → 各自应用内
+
+3. **环境变量**
+   - 使用 `.env.local`
+   - 绝不提交到 git
+
+4. **提交规范**
+   ```
+   feat: 新功能
+   fix: 修复
+   docs: 文档
+   refactor: 重构
+   chore: 杂项
+   ```
+
+## 🚀 部署
+
+### Vercel (推荐)
+
+每个应用可以独立部署到 Vercel：
+
+```bash
+# 部署 website
+cd apps/website
+vercel --prod
+
+# 部署 dashboard
+cd apps/dashboard
+vercel --prod
 ```
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
+### 配置说明
 
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
+- 每个应用有自己的 `vercel.json` 配置
+- 共享包会自动构建
+- 环境变量在 Vercel Dashboard 中配置
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+## 📄 相关文档
 
-```sh
-turbo link
-```
+- [项目结构说明](./PROJECT_STRUCTURE.md)
+- [Turborepo 文档](https://turbo.build/repo/docs)
+- [Next.js 文档](https://nextjs.org/docs)
 
-Without global `turbo`:
+## 🔗 链接
 
-```sh
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
+- **GitHub**: https://github.com/agentjoey/agentjoey-workspace
+- **Website**: (部署中)
+- **Dashboard**: (开发中)
 
-## Useful Links
+## 📝 License
 
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+Private - All rights reserved
