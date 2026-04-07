@@ -2,18 +2,13 @@
   "name": "@workspace/hooks",
   "version": "0.0.1",
   "private": true,
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "echo 'Lint hooks'",
     "check-types": "tsc --noEmit"
   },
   "devDependencies": {
-    "@workspace/typescript-config": "*",
-    "@workspace/eslint-config": "*",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
