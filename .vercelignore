@@ -1,0 +1,29 @@
+# Vercel ignore file for monorepo
+# Root files that should not be uploaded
+.git
+node_modules
+*.log
+.DS_Store
+
+# App-specific build outputs (handled by each app)
+apps/*/dist
+apps/*/.next
+apps/*/node_modules
+
+# Package build outputs
+packages/*/dist
+packages/*/.turbo
+packages/*/node_modules
+
+# Development files
+.vscode
+.idea
+*.md
+!README.md
+
+# Test files
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+coverage
