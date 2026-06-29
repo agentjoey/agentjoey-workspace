@@ -1,0 +1,17 @@
+{
+  "name": "agentjoey-workspace",
+  "owner": {
+    "name": "agentjoey",
+    "email": "theagentjoey@gmail.com"
+  },
+  "metadata": {
+    "description": "agentjoey's collection of Claude tools and skills."
+  },
+  "plugins": [
+    {
+      "name": "behavior-driven-testing",
+      "source": "./plugins/behavior-driven-testing",
+      "description": "Test at the real boundary with real data and probe the running system before claiming a feature works. A green gate is not 'works'."
+    }
+  ]
+}
