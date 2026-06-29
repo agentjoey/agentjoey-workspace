@@ -1,0 +1,18 @@
+{
+  "name": "behavior-driven-testing",
+  "version": "1.0.0",
+  "description": "Test at the real boundary with real data and probe the running system before claiming a feature works. Layers on superpowers TDD + verification-before-completion. Built and validated via the writing-skills RED-GREEN-REFACTOR cycle.",
+  "author": {
+    "name": "agentjoey",
+    "email": "theagentjoey@gmail.com"
+  },
+  "keywords": [
+    "testing",
+    "behavior-driven",
+    "verification",
+    "tdd",
+    "acceptance",
+    "real-boundary",
+    "quality"
+  ]
+}
