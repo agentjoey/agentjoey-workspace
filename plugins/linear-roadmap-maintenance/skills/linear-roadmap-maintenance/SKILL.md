@@ -1,77 +1,135 @@
 ---
 name: linear-roadmap-maintenance
-description: Use when an agent has to keep Linear current on its own — a scheduled or post-merge roadmap sync, reconciling shipped commits/PRs against Linear issues, milestones and project status, grooming a backlog, or wiring Claude Code / Codex to do that on a cadence or after N merged PRs. Also use before hand-editing Linear after a burst of agent-written code.
+description: Use when Linear is the work queue for a repo — picking the next backlog issue by priority and working it, updating/closing issues as part of finishing a task, judging whether a backlog or roadmap pass is worth the tokens at all, or wiring Claude Code / Codex to run that loop on a cadence or after N merged PRs. Also use when roadmap upkeep is eating development time.
 ---
 
-# Linear Roadmap Maintenance
+# Linear as the work queue
 
-**Core principle:** A roadmap is a *record of what shipped*, not a wish list of what was planned. Agents write code fast and leave the tracker behind, so the tracker starts lying — and a lying tracker is worse than none, because humans plan against it. Every sync must be **evidence-driven** (git decides what is done, not your memory), **idempotent** (the second run changes nothing), and **bounded** (some edits are never made unattended).
+**Core principle:** The backlog is where work comes *from*, not a ledger you reconstruct afterwards. An agent that starts from an issue already holds its identifier, its acceptance criterion and its priority — closing it costs two tool calls at the end of a task it was doing anyway. An agent that codes first and reconciles later must re-derive all of that from git: **10–20× the tokens, and it still guesses wrong.** So: **pull → claim → work → close.** Reconstruction is the repair path, never the plan.
 
-Announce the sync in one line when you start one, and never silently mutate Linear inside an unrelated task.
+**Second principle:** upkeep that costs more than it saves is a tax, not upkeep. Every rule below carries a token budget. Over budget → cut the bookkeeping, never the engineering.
 
-## Recipe 1 — the gate: decide whether to sync at all
+## Recipe 1 — the loop
 
-Never sync per commit — that is how you get duplicate issues and status-update spam. Run the gate first:
+1. **Pull the top of the backlog — not the backlog.** One call, `fields` always explicit:
+   ```
+   list_issues { team: "<team>", state: "backlog", limit: 10,
+                 fields: ["id","title","priority","labels","projectMilestone","estimate"] }
+   ```
+   ~400 tokens. Omitting `fields` pulls every description — 5–10k for a real backlog, for information you will not read.
+2. **Pick one** (Recipe 2), then `get_issue { id }` for that one's full description. Never open the ones you did not pick.
+3. **Claim it:** `save_issue { id, state: "In Progress", assignee: "me" }`. This is what stops two agents from grabbing the same issue. Solo repo with `workLoop.claim: false` → skip the call.
+4. **Work normally** — and pay the instrumentation forward, because it is free: branch `agt-123-hero-section`, commit subject `feat(website): hero section (AGT-123)`. Those identifiers are what make the repair pass a no-op later. This is the single highest-leverage habit in the skill.
+5. **Close out** (Recipe 3) in the same session, while you still have the context. A separate "sync session" pays to reload everything you already knew.
+
+**Session shape:** one issue per session by default; at most `workLoop.maxIssuesPerSession` (default 3) and only when they share files or project context. Context over ~50% full → close out what is done and stop. Draining a backlog in one context makes quality fall and cost per issue climb.
+
+## Recipe 2 — picking, cheaply
+
+Walk the pulled list in this order and **stop at the first issue that passes the filter**. Do not rank the whole backlog; that is the classic token trap.
+
+1. Priority 1 (Urgent) → 2. blocks other issues → 3. in the current cycle/milestone with the nearest target date → 4. priority 2/3/4 → 5. least recently updated.
+
+Skip — do not start, do not investigate:
+
+- You cannot state the acceptance criterion in one sentence from the issue text. *(Comment one specific question, move on. An underspecified ticket is the biggest token sink there is — an agent flailing at a vague issue burns more than a week of bookkeeping.)*
+- Carries `workLoop.skipLabels` (default `needs-human`, `blocked`, `design`).
+- `blockedBy` an issue that is not done.
+- Estimate above `workLoop.maxEstimate` — that needs a human's plan first.
+
+Nothing passes the filter? Say so and stop. Do **not** invent work, and do not groom the backlog just because you are idle.
+
+## Recipe 3 — close out: write once, write short
+
+One batch of writes at the end:
+
+```
+save_issue { id: "AGT-123", state: "Done",
+             links: [{ url: "<PR url>", title: "PR #42" }] }
+```
+
+Plus, only if you genuinely discovered them, up to **3** follow-up issues: title, two lines, priority, `agent-maintained` label. More than three means you are generating backlog spam that every future pull has to page through.
+
+Never write, on any task:
+
+| Pure tax | Why |
+|---|---|
+| A "starting work" comment | `state: In Progress` already says it |
+| Progress comments mid-task | Nobody reads them; they cost on every later issue read |
+| A project status update per issue | At most one per project per *sync*, and only when a human-visible fact changed (a milestone slipped) |
+| Re-listing the backlog you already pulled | It is in your context |
+| An issue for a typo / lint / format fix | A record nobody reads costs tokens to write and forever to skim |
+| A 20-line description where 3 lines do | Written text is a **recurring** cost: every future reader pays it again |
+| Reading git log to find out what you just did | You already know |
+
+**If a Linear write fails: do not block, do not retry-loop.** Finish the development work, name the unsynced issue in your summary, and let the repair pass catch it — your commit carries the identifier, so it will.
+
+## Recipe 4 — the repair pass (only for work that skipped the loop)
+
+Human hotfixes, another agent's commits, an emergency push — work that never came from an issue. That, and only that, needs reconstruction.
 
 ```bash
-python3 "$SKILL_DIR/scripts/roadmap-gate.py"          # sync brief as JSON (evidence + due-ness)
+python3 "$SKILL_DIR/scripts/roadmap-gate.py"          # compact brief + verdict
 python3 "$SKILL_DIR/scripts/roadmap-gate.py" --check  # exit 0 = due, 10 = not due
 ```
 
-It reads `.linear-roadmap.json` (config) and `.linear-roadmap.state.json` (last sync sha/time) at the repo root and reports **due** when any cadence threshold trips: `everyDays`, `everyMergedPRs`, `everyCommits`. See `references/config-and-state.md` for the schema, `references/scheduling.md` for cron / GitHub Actions / hook / Codex wiring.
+The gate classifies every commit since the last sync as **ticketed** (carries an identifier — the loop already handled it, zero work), **trivial** (chore/docs/ci — deliberately never ticketed), or **unticketed**. Then:
 
-- **Not due → stop.** Say "roadmap sync not due (<reason>)" and write nothing to Linear. A no-op is the most common correct outcome.
-- **No config file → stop and ask** which team and projects to maintain. Do not guess a team and start creating issues in someone's workspace.
-- The brief is your phase-1 evidence; do not re-derive it by hand.
+- `unticketed == 0` → **not due. Stop without loading any Linear state at all.** This is the design paying off: when the loop is working, the repair pass costs one script run and nothing else.
+- Unticketed work exists *and* a cadence threshold trips (`everyDays` / `everyUnticketedMerges` / `everyUnticketedCommits`) → **repair mode**: reconcile only the unticketed commits. Read the issues for the touched projects, close what shipped, record genuinely new work as an issue already in the done state, ≤1 status update per project. Do not re-audit the ticketed ones.
+- `roadmapReviewDays` elapsed → **roadmap-review mode**: projects and milestones only, no issue-by-issue reconciliation. Recompute milestone progress; if a target date is unreachable at the observed rate, post one status update saying so with the numbers. **Never quietly move the date.**
 
-## Recipe 2 — the sync pass (five phases, in order)
+Finish with `--record --note "<one line>"` and commit the state file. A sync that failed halfway is **not** recorded — the retry is safe by design (Recipe 5).
 
-1. **Read the evidence.** From the brief: commit range, merges, changed paths → `projectsTouched`, and `issueIdentifiersReferenced` (identifiers scraped from commit subjects/branches). For anything ambiguous, read the actual diff or PR body — never infer scope from a commit subject alone.
-2. **Read current Linear state before writing.** `list_projects`, `list_issues` (per touched project, plus `state: "backlog"`), `list_milestones`, `list_cycles`. You cannot reconcile against state you have not loaded; skipping this is how duplicates get created.
-3. **Close the loop on shipped work.**
-   - Issue referenced by a merged commit but still open → move to the team's done state and attach the PR/commit link.
-   - Work shipped with **no** issue → create it *already in the done state*, describing what shipped. This is a record, not fiction; do not invent a planning story for it.
-   - Issue whose stated scope the diff contradicts → update the description to what actually shipped, and say so in the report.
-4. **Look forward: groom, then re-forecast.**
-   - Backlog: merge duplicates, delete nothing, re-prioritise from what the code now demands (newly-blocked work, `TODO(AGT-xx)` markers, follow-ups named in PR descriptions).
-   - Milestones: recompute progress from real issue states. If a target date is unreachable at the observed throughput, **say so in a status update — do not quietly move the date.**
-   - Post **one** `save_status_update` per project per sync, only when something changed, with `health` justified by evidence (`onTrack` / `atRisk` / `offTrack`) and the commit range cited.
-5. **Record and report.** `roadmap-gate.py --record --note "<one line>"`, commit the state file, and print a diff summary: issues closed, created, re-prioritised, milestones flagged. Tool call names and payloads: `references/linear-operations.md`.
+## Recipe 5 — idempotency (what makes retries free)
 
-## Recipe 3 — autonomy boundaries
+1. **Search before create:** `list_issues { query: "<title>" }`. A near-title match is a match — update it, do not add a twin.
+2. **Mark what you own:** agent-created issues get the `agent-maintained` label and a `<!-- roadmap-sync: <sha> -->` footer. Only edit bodies carrying that marker; comment on anything else.
+3. **Never ticket a commit that already names an issue.**
+4. **Use `addLabels`, not `labels`** — the latter replaces the set and silently drops a human's labels. Use `patch` to edit part of a long description rather than resending it.
+5. `lastSyncedSha` in the state file is the interlock. Record only after a fully successful pass.
 
-| Unattended (just do it) | Propose only (comment / ask, never apply) |
+## Token budget — the numbers that decide the rules
+
+| Step | Calls | ~Tokens |
+|---|---|---|
+| Pull top of backlog (with `fields`) | 1 | 300–600 *(5–10k without)* |
+| Read the one issue you picked | 1 | 300–1,500 |
+| Claim | 1 | ~150 |
+| Close + link | 1 | ~200 |
+| Follow-ups (capped at 3) | 0–3 | ~200 each |
+| **In-loop total** | **3–6** | **~1–2.5k** |
+| Repair pass for the same work, after the fact | 5–15 | **8–40k** |
+
+**The rule:** if Linear upkeep exceeds ~5% of a task's tokens, you are bookkeeping instead of engineering — cut it. Everything in this skill follows from that ratio: pull one issue not a hundred, write at the end not throughout, keep bodies short because reads recur, and instrument commits so the expensive path never runs.
+
+## Autonomy boundaries
+
+| Unattended | Propose only (comment; never apply) |
 |---|---|
-| Create backlog issues for work the code demands | Creating projects, initiatives, or teams |
-| Move an issue to done when a merged PR proves it | Closing anything as Cancelled / Won't-do |
-| Update an issue's own description, labels, links | Changing project target dates or committed scope |
-| Re-prioritise and re-order the backlog | Archiving or deleting issues, or editing a human's issue body |
-| Post a project status update | Assigning work to a human, or changing their assignment |
+| Claim, work and close backlog issues | Create projects, initiatives or teams |
+| Create follow-up issues (≤3/task) | Close anything as Cancelled / Won't-do |
+| Update an issue's own body, labels, links | Change project target dates or committed scope |
+| Re-prioritise the backlog during a repair pass | Archive or delete issues; edit a human's issue body |
+| One status update per project per sync | Assign work to a human |
 
-Propose = a comment on the issue/project (`save_comment`), or a single issue titled `Roadmap proposal: …`. When `.linear-roadmap.json` sets a stricter `autonomy`, that wins.
+A stricter `autonomy` block in `.linear-roadmap.json` always wins. Schema: `references/config-and-state.md`. Tool payloads: `references/linear-operations.md`. Triggers: `references/scheduling.md`.
 
-## Idempotency contract — the anti-duplication rules
+## Red flags
 
-1. **Search before create.** `list_issues` with `query:` on the title and on the PR URL. A near-title match is a match — update it, don't add a twin.
-2. **Mark what you own.** Every agent-created issue gets the `agent-maintained` label and a footer line `<!-- roadmap-sync: <sha> -->`. Only edit bodies carrying that marker; for anything else, comment.
-3. **Never create an issue for a commit that already names one.**
-4. **One status update per project per sync**, and none when nothing changed.
-5. **State is the interlock.** Always `--record` after a successful sync and commit the state file; re-running then reconciles nothing twice. A sync that failed halfway must NOT be recorded.
-
-## Red flags — stop and reconsider
-
-- Syncing on every commit, or because "it has been a while" without running the gate
-- Creating issues before listing what already exists
+- Writing code first and planning to "sync Linear afterwards" — that is the 10–20× path
+- Pulling the backlog without `fields`, or reading issues you did not pick
+- Grooming, re-prioritising or status-updating when you were asked to ship something
+- Commenting progress, or posting a status update per issue
+- Starting an issue whose acceptance criterion you cannot state in one sentence
+- Blocking or retry-looping development because a Linear write failed
+- Running a repair pass when every commit is already ticketed
 - Moving a milestone date so the roadmap looks green
-- Closing an issue because the code "looks done" with no merged commit behind it
-- Writing a status update that reports intent ("working on auth") instead of evidence ("14 commits, AGT-12/45 shipped, milestone M2 4/7")
-- Editing or archiving issues a human wrote, without a marker and without asking
-- Recording sync state after a partial failure
 
 ## Example
 
-Gate says due: `5 merges >= everyMergedPRs 5`, `projectsTouched: {Website: [...]}`, `issueIdentifiersReferenced: [AGT-12, AGT-45]`.
+Session starts. Pull 10 backlog issues with `fields` (~450 tokens). Top is AGT-51 "Redesign onboarding" — priority 2, no acceptance criterion, label `design` → skip, one comment asking what "done" means. Next is AGT-123 "Hero section responsive breakpoints", priority 2, one-sentence criterion → take it. `get_issue` (~600), claim, branch `agt-123-hero`, build, commit `fix(website): hero breakpoints (AGT-123)`, PR. Close with the PR link; the layout bug found on the way becomes one follow-up issue. **Total upkeep: 4 calls, ~1.4k tokens, ~3% of the task.**
 
-❌ Wrong: create five "shipped X" issues from the five merge subjects and post "good progress!" — duplicates AGT-12/45, and the update carries no evidence.
+Two weeks later a human hotfixes production directly on main. The gate sees 1 unticketed commit among 22 ticketed ones, trips `everyDays`, and enters repair mode for that *one* commit — not the 22.
 
-✅ Right: list the project's issues first → AGT-12 and AGT-45 are open, so close both with their PR links; two merges map to no issue, so create one issue in done state (the other was a revert — record nothing); one backlog item is now blocked by the new API shape, so re-prioritise and note why; milestone M2 is 4/7 with 3 weeks left at ~1.5 issues/week → `health: "atRisk"` with those numbers in the body; then `--record` and commit.
+❌ The anti-pattern this replaces: code all week, then a Monday job reads 60 commits and 100 issues to guess what happened — tens of thousands of tokens to reconstruct what the loop records for free.

@@ -1,19 +1,19 @@
 {
   "name": "linear-roadmap-maintenance",
   "version": "1.0.0",
-  "description": "Let coding agents (Claude Code, Codex) keep a Linear roadmap and backlog honest on their own — on a cadence or after N merged PRs — by reconciling shipped git work against Linear issues, milestones and status updates, idempotently and within explicit autonomy limits.",
+  "description": "Make Linear the work queue: the agent pulls the top backlog issue by priority, works it, and closes it in the same session — with a gate that keeps upkeep under ~5% of a task's tokens and skips reconciliation entirely when commits are ticketed.",
   "author": {
     "name": "agentjoey",
     "email": "theagentjoey@gmail.com"
   },
   "keywords": [
     "linear",
-    "roadmap",
     "backlog",
-    "project-management",
+    "roadmap",
+    "work-queue",
+    "prioritization",
+    "token-budget",
     "autonomous",
-    "scheduled",
-    "grooming",
     "codex"
   ]
 }

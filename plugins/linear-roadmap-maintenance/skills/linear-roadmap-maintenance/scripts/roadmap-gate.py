@@ -1,25 +1,32 @@
 #!/usr/bin/env python3
-"""Decide whether a Linear roadmap sync is due, and emit the git-side evidence.
+"""Decide whether a Linear repair/roadmap pass is worth running, and why.
 
-The script is the deterministic half of the sync: it reads the repo's config and
-sync state, measures the work delta since the last sync, and prints a "sync
-brief" as JSON. All judgement (what to create, close, re-forecast) belongs to the
-agent reading that brief, not here.
+The work loop (pull an issue -> claim -> build -> close) keeps Linear in sync for
+free, because the agent starts from the issue and its identifier ends up in the
+commit. This script exists for the work that skipped the loop: human hotfixes,
+another agent's push, an emergency commit.
+
+So it classifies every commit since the last sync as:
+  ticketed   - carries an issue identifier; the loop handled it, nothing to do
+  trivial    - chore/docs/ci/revert; deliberately never ticketed
+  unticketed - the only work a repair pass has any reason to look at
+
+No unticketed work -> not due -> the agent stops without loading any Linear
+state at all. That no-op is the point: upkeep should cost nothing when the loop
+is working.
 
 Usage:
-  roadmap-gate.py                 # print the sync brief as JSON
-  roadmap-gate.py --check         # exit 0 = sync due, 10 = not due, 1 = error
-  roadmap-gate.py --force         # brief with due=true regardless of cadence
-  roadmap-gate.py --record        # write state after a successful sync (HEAD, now)
-  roadmap-gate.py --record --note "closed 3, created 2"
-
-Config:  .linear-roadmap.json        (committed, hand-written)
-State:   .linear-roadmap.state.json  (committed, written by --record)
+  roadmap-gate.py                  # compact brief as JSON (default; cheap to read)
+  roadmap-gate.py --verbose        # add full commit list and changed paths
+  roadmap-gate.py --check          # exit 0 = due, 10 = not due (prints one line)
+  roadmap-gate.py --force          # due regardless of cadence
+  roadmap-gate.py --record --note "closed AGT-45; 1 recorded"
 """
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -30,28 +37,44 @@ from datetime import datetime, timedelta, timezone
 CONFIG_NAME = ".linear-roadmap.json"
 STATE_NAME = ".linear-roadmap.state.json"
 
-DEFAULT_CADENCE = {"everyDays": 7, "everyMergedPRs": 5, "everyCommits": 25}
+DEFAULT_CADENCE = {
+    "everyDays": 7,
+    "everyUnticketedMerges": 3,
+    "everyUnticketedCommits": 10,
+    "roadmapReviewDays": 14,
+    "firstRunLookbackDays": 30,
+}
+# Accepted for compatibility with the older, git-reconciliation-shaped config.
+CADENCE_ALIASES = {
+    "everyMergedPRs": "everyUnticketedMerges",
+    "everyCommits": "everyUnticketedCommits",
+}
 
-# Tokens that look like a Linear identifier but never are.
+DEFAULT_TRIVIAL = [
+    r"^(chore|docs|style|ci|build|test)(\(.+\))?!?:",
+    r"^Revert ",
+    r"^Merge branch ",
+    r"^bump ",
+]
+
+# Tokens shaped like a Linear identifier that never are one.
 NOT_AN_ISSUE = {
     "UTF", "SHA", "ISO", "RFC", "IPV", "HTTP", "HTTPS", "TLS", "AES", "RSA",
-    "MD", "CVE", "ES", "PEP", "GPT", "LTS", "X", "NODE", "PY",
+    "MD", "CVE", "ES", "PEP", "GPT", "LTS", "X", "NODE", "PY", "HTML", "CSS",
 }
 IDENTIFIER_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9})-(\d{1,6})\b")
 
+REC, FLD = "\x1e", "\x1f"
 
-def fail(msg: str) -> "None":
+
+def fail(msg: str) -> None:
     print(f"roadmap-gate: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
 def git(*args: str, cwd: str) -> str:
-    res = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False
-    )
-    if res.returncode != 0:
-        return ""
-    return res.stdout.strip()
+    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+    return res.stdout.strip() if res.returncode == 0 else ""
 
 
 def repo_root() -> str:
@@ -76,11 +99,11 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def parse_ts(value: str | None) -> datetime | None:
+def parse_ts(value):
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
 
@@ -92,7 +115,7 @@ def commit_exists(root: str, sha: str) -> bool:
     ).returncode == 0
 
 
-def commit_range(root: str, last_sha: str | None, fallback_days: int) -> tuple[str, str]:
+def commit_range(root: str, last_sha, fallback_days: int):
     """Return (range_expr, human_label). Falls back to a time window on first run."""
     head = git("rev-parse", "HEAD", cwd=root)
     if last_sha and commit_exists(root, last_sha):
@@ -101,33 +124,59 @@ def commit_range(root: str, last_sha: str | None, fallback_days: int) -> tuple[s
     return f"--since={since}", f"last {fallback_days} days"
 
 
-def collect_commits(root: str, rng: str) -> list[dict]:
-    sep = "\x1f"
-    fmt = sep.join(["%H", "%an", "%aI", "%s", "%P"])
-    raw = git("log", rng, f"--pretty=format:{fmt}", "--no-merges", cwd=root)
-    merges = git("log", rng, f"--pretty=format:{fmt}", "--merges", cwd=root)
-    out: list[dict] = []
-    for block, is_merge in ((raw, False), (merges, True)):
-        for line in block.splitlines():
-            if not line.strip():
+def identifiers_in(text: str, prefixes) -> list:
+    allow = {p.upper() for p in prefixes}
+    out = []
+    for prefix, number in IDENTIFIER_RE.findall(text or ""):
+        if allow:
+            if prefix not in allow:
                 continue
-            parts = line.split(sep)
-            if len(parts) < 5:
-                continue
-            out.append({
-                "sha": parts[0][:12],
-                "author": parts[1],
-                "date": parts[2],
-                "subject": parts[3],
-                "isMerge": is_merge,
-            })
-    out.sort(key=lambda c: c["date"])
+        elif prefix in NOT_AN_ISSUE:
+            continue
+        ident = f"{prefix}-{number}"
+        if ident not in out:
+            out.append(ident)
     return out
 
 
-def changed_paths(root: str, rng: str) -> list[str]:
+def collect_commits(root: str, rng: str, prefixes, trivial_patterns) -> list:
+    """One git call. Body included so `Closes AGT-45` in a PR body still counts."""
+    fmt = FLD.join(["%H", "%an", "%aI", "%P", "%s", "%b"]) + REC
+    raw = git("log", rng, f"--pretty=format:{fmt}", cwd=root)
+    trivial_res = [re.compile(p, re.I) for p in trivial_patterns]
+    commits = []
+    for block in raw.split(REC):
+        block = block.strip("\n")
+        if not block.strip():
+            continue
+        parts = block.split(FLD)
+        if len(parts) < 5:
+            continue
+        sha, author, date, parents, subject = parts[:5]
+        body = parts[5] if len(parts) > 5 else ""
+        idents = identifiers_in(f"{subject}\n{body}", prefixes)
+        if idents:
+            kind = "ticketed"
+        elif any(rx.search(subject) for rx in trivial_res):
+            kind = "trivial"
+        else:
+            kind = "unticketed"
+        commits.append({
+            "sha": sha[:12],
+            "author": author,
+            "date": date,
+            "subject": subject,
+            "isMerge": len(parents.split()) > 1,
+            "kind": kind,
+            "identifiers": idents,
+        })
+    commits.sort(key=lambda c: c["date"])
+    return commits
+
+
+def changed_paths(root: str, rng: str) -> list:
     raw = git("log", rng, "--name-only", "--pretty=format:", cwd=root)
-    seen: list[str] = []
+    seen = []
     for line in raw.splitlines():
         line = line.strip()
         if line and line not in seen:
@@ -135,16 +184,13 @@ def changed_paths(root: str, rng: str) -> list[str]:
     return seen
 
 
-def match_projects(paths: list[str], projects: list[dict]) -> dict[str, list[str]]:
-    """Map configured project -> the changed paths that belong to it."""
-    import fnmatch
-
-    hits: dict[str, list[str]] = {}
+def match_projects(paths, projects) -> dict:
+    hits = {}
     for project in projects:
         name = project.get("name")
-        patterns = project.get("paths") or ["**"]
         if not name:
             continue
+        patterns = project.get("paths") or ["**"]
         matched = [
             p for p in paths
             if any(fnmatch.fnmatch(p, pat) or p.startswith(pat.rstrip("*")) for pat in patterns)
@@ -154,93 +200,141 @@ def match_projects(paths: list[str], projects: list[dict]) -> dict[str, list[str
     return hits
 
 
-def find_identifiers(texts: list[str], prefixes: list[str]) -> list[str]:
-    found: list[str] = []
-    allow = {p.upper() for p in prefixes}
-    for text in texts:
-        for prefix, number in IDENTIFIER_RE.findall(text or ""):
-            if allow:
-                if prefix not in allow:
-                    continue
-            elif prefix in NOT_AN_ISSUE:
-                continue
-            ident = f"{prefix}-{number}"
-            if ident not in found:
-                found.append(ident)
-    return found
-
-
-def build_brief(root: str, force: bool) -> dict:
+def build_brief(root: str, force: bool, verbose: bool) -> dict:
     config = load_json(os.path.join(root, CONFIG_NAME))
     state = load_json(os.path.join(root, STATE_NAME))
 
-    cadence = {**DEFAULT_CADENCE, **(config.get("cadence") or {})}
+    cadence = dict(DEFAULT_CADENCE)
+    for key, value in (config.get("cadence") or {}).items():
+        cadence[CADENCE_ALIASES.get(key, key)] = value
+
     projects = config.get("projects") or []
     prefixes = config.get("issuePrefixes") or []
+    trivial_patterns = config.get("ignoreCommitPatterns") or DEFAULT_TRIVIAL
 
     last_sha = state.get("lastSyncedSha")
     last_at = parse_ts(state.get("lastSyncedAt"))
-    rng, label = commit_range(root, last_sha, int(cadence.get("firstRunLookbackDays", 30)))
+    last_review = parse_ts(state.get("lastRoadmapReviewAt")) or last_at
 
-    commits = collect_commits(root, rng)
-    non_merge = [c for c in commits if not c["isMerge"]]
-    merged = [c for c in commits if c["isMerge"]]
-    paths = changed_paths(root, rng)
+    rng, label = commit_range(root, last_sha, int(cadence["firstRunLookbackDays"]))
+    commits = collect_commits(root, rng, prefixes, trivial_patterns)
 
-    days_since = None
-    if last_at:
-        days_since = round((now() - last_at).total_seconds() / 86400, 2)
+    unticketed = [c for c in commits if c["kind"] == "unticketed"]
+    ticketed = [c for c in commits if c["kind"] == "ticketed"]
+    trivial = [c for c in commits if c["kind"] == "trivial"]
+    unticketed_merges = [c for c in unticketed if c["isMerge"]]
 
-    reasons: list[str] = []
+    days_since = round((now() - last_at).total_seconds() / 86400, 2) if last_at else None
+    days_since_review = (
+        round((now() - last_review).total_seconds() / 86400, 2) if last_review else None
+    )
+
+    # Repair mode: only unticketed work justifies it; cadence decides when to batch.
+    repair_reasons = []
+    if unticketed:
+        if last_at is None:
+            repair_reasons.append("no previous sync recorded")
+        elif days_since is not None and days_since >= cadence["everyDays"]:
+            repair_reasons.append(
+                f"{days_since}d since last sync >= everyDays {cadence['everyDays']}"
+            )
+        if len(unticketed_merges) >= cadence["everyUnticketedMerges"]:
+            repair_reasons.append(
+                f"{len(unticketed_merges)} unticketed merges >= "
+                f"everyUnticketedMerges {cadence['everyUnticketedMerges']}"
+            )
+        if len(unticketed) >= cadence["everyUnticketedCommits"]:
+            repair_reasons.append(
+                f"{len(unticketed)} unticketed commits >= "
+                f"everyUnticketedCommits {cadence['everyUnticketedCommits']}"
+            )
+
+    review_due = (
+        cadence["roadmapReviewDays"] > 0
+        and (days_since_review is None or days_since_review >= cadence["roadmapReviewDays"])
+        and bool(commits)
+    )
+
     if force:
-        reasons.append("forced")
-    if last_at is None:
-        reasons.append("no previous sync recorded")
-    elif days_since is not None and days_since >= cadence["everyDays"]:
-        reasons.append(f"{days_since}d since last sync >= everyDays {cadence['everyDays']}")
-    if len(merged) >= cadence["everyMergedPRs"]:
-        reasons.append(f"{len(merged)} merges >= everyMergedPRs {cadence['everyMergedPRs']}")
-    if len(non_merge) >= cadence["everyCommits"]:
-        reasons.append(f"{len(non_merge)} commits >= everyCommits {cadence['everyCommits']}")
+        mode, reasons = "repair", ["forced"]
+    elif repair_reasons:
+        mode, reasons = "repair", repair_reasons
+    elif review_due:
+        mode = "roadmap-review"
+        elapsed = f"{days_since_review}d" if days_since_review is not None else "never reviewed"
+        reasons = [
+            f"{elapsed} since last roadmap review "
+            f">= roadmapReviewDays {cadence['roadmapReviewDays']}"
+        ]
+    else:
+        mode = None
+        reasons = []
+        if not commits:
+            reasons.append("no new commits since last sync")
+            if cadence["roadmapReviewDays"] > 0 and (
+                days_since_review is None
+                or days_since_review >= cadence["roadmapReviewDays"]
+            ):
+                reasons.append("a roadmap review is owed but there is nothing new to review")
+        elif not unticketed:
+            one = len(ticketed) == 1
+            plural, verb = ("", "carries") if one else ("s", "carry")
+            reasons.append(
+                f"all {len(ticketed)} substantive commit{plural} {verb} an issue identifier "
+                f"({len(trivial)} trivial) — the work loop kept Linear in sync"
+            )
+        else:
+            plural = "" if len(unticketed) == 1 else "s"
+            reasons.append(
+                f"{len(unticketed)} unticketed commit{plural}, "
+                "under cadence thresholds — batching"
+            )
 
-    has_work = bool(commits)
-    due = bool(reasons) and (has_work or force)
-    if reasons and not has_work and not force:
-        reasons.append("but no new commits — nothing to reconcile")
+    paths = changed_paths(root, rng) if (mode or verbose) else []
 
-    return {
-        "due": due,
+    brief = {
+        "due": mode is not None,
+        "mode": mode,
         "reasons": reasons,
         "config": {
             "present": bool(config),
             "team": config.get("team"),
+            "projects": [p.get("name") for p in projects],
             "cadence": cadence,
             "autonomy": config.get("autonomy") or {},
-            "projects": [p.get("name") for p in projects],
+            "workLoop": config.get("workLoop") or {},
         },
         "lastSync": {
-            "sha": last_sha,
+            "sha": (last_sha or "")[:12] or None,
             "at": state.get("lastSyncedAt"),
             "daysSince": days_since,
             "note": state.get("lastSyncNote"),
         },
         "delta": {
             "range": label,
-            "commits": len(non_merge),
-            "merges": len(merged),
-            "authors": sorted({c["author"] for c in commits}),
-            "changedPaths": paths[:200],
+            "ticketed": len(ticketed),
+            "trivial": len(trivial),
+            "unticketed": len(unticketed),
+            "unticketedMerges": len(unticketed_merges),
             "changedPathCount": len(paths),
         },
-        "projectsTouched": match_projects(paths, projects),
-        "issueIdentifiersReferenced": find_identifiers(
-            [c["subject"] for c in commits], prefixes
-        ),
-        "commits": commits[:100],
+        # The only commits a repair pass should look at.
+        "unticketedCommits": [
+            {"sha": c["sha"], "subject": c["subject"], "author": c["author"], "date": c["date"][:10]}
+            for c in unticketed[:25]
+        ],
+        "issueIdentifiersReferenced": sorted({i for c in ticketed for i in c["identifiers"]}),
+        "projectsTouched": {k: len(v) for k, v in match_projects(paths, projects).items()},
     }
 
+    if verbose:
+        brief["commits"] = commits
+        brief["changedPaths"] = paths
+        brief["projectsTouchedPaths"] = match_projects(paths, projects)
+    return brief
 
-def record(root: str, note: str | None) -> dict:
+
+def record(root: str, note, mode) -> dict:
     head = git("rev-parse", "HEAD", cwd=root)
     if not head:
         fail("cannot resolve HEAD")
@@ -249,14 +343,19 @@ def record(root: str, note: str | None) -> dict:
     history = state.get("history") or []
     if state.get("lastSyncedAt"):
         history.insert(0, {
-            "sha": state.get("lastSyncedSha"),
+            "sha": (state.get("lastSyncedSha") or "")[:12],
             "at": state.get("lastSyncedAt"),
             "note": state.get("lastSyncNote"),
         })
+    stamp = now().replace(microsecond=0).isoformat().replace("+00:00", "Z")
     new_state = {
         "lastSyncedSha": head,
-        "lastSyncedAt": now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "lastSyncedAt": stamp,
         "lastSyncNote": note or "",
+        "lastRoadmapReviewAt": (
+            stamp if mode in (None, "roadmap-review")
+            else state.get("lastRoadmapReviewAt") or stamp
+        ),
         "history": history[:20],
     }
     with open(path, "w", encoding="utf-8") as fh:
@@ -269,19 +368,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--check", action="store_true", help="exit 0 if due, 10 if not")
     parser.add_argument("--force", action="store_true", help="report due regardless of cadence")
+    parser.add_argument("--verbose", action="store_true", help="include every commit and path")
     parser.add_argument("--record", action="store_true", help="write sync state at HEAD")
     parser.add_argument("--note", default=None, help="one-line summary stored with the state")
+    parser.add_argument("--mode", default=None, choices=["repair", "roadmap-review"],
+                        help="with --record: which pass just completed")
     args = parser.parse_args()
 
     root = repo_root()
 
     if args.record:
-        print(json.dumps(record(root, args.note), indent=2, ensure_ascii=False))
+        print(json.dumps(record(root, args.note, args.mode), indent=2, ensure_ascii=False))
         return 0
 
-    brief = build_brief(root, args.force)
+    brief = build_brief(root, args.force, args.verbose)
     if args.check:
-        print(json.dumps({"due": brief["due"], "reasons": brief["reasons"]}, ensure_ascii=False))
+        print(json.dumps(
+            {"due": brief["due"], "mode": brief["mode"], "reasons": brief["reasons"]},
+            ensure_ascii=False,
+        ))
         return 0 if brief["due"] else 10
 
     print(json.dumps(brief, indent=2, ensure_ascii=False))

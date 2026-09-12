@@ -16,7 +16,7 @@
     {
       "name": "linear-roadmap-maintenance",
       "source": "./plugins/linear-roadmap-maintenance",
-      "description": "Let agents keep a Linear roadmap and backlog honest on their own — on a cadence or after N merged PRs — reconciling shipped git work against Linear issues, milestones and status updates, idempotently and within explicit autonomy limits."
+      "description": "Make Linear the work queue: pull the top backlog issue by priority, work it, close it in the same session. Reconciliation is the repair path, gated so it costs nothing when the loop is working."
     }
   ]
 }

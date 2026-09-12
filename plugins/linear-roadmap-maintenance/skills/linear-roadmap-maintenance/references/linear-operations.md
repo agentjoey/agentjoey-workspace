@@ -1,86 +1,123 @@
 # Linear operations cookbook
 
-Two transports. Prefer the MCP tools; fall back to GraphQL only where MCP is unavailable (some Codex setups, CI containers).
+Ordered by how often you should need it: the work loop is 4 calls and runs every task; the repair pass is expensive and should run rarely. Prefer the MCP tools; use GraphQL only where MCP is unavailable (some Codex setups, CI containers).
 
-## A. Linear MCP tools (Claude Code, and Codex with the Linear MCP server configured)
+## A. The work loop — 4 calls, ~1–2.5k tokens
 
-### Read before you write — phase 2
-
-```
-list_teams                                            → confirm the configured team exists
-list_projects     { teamId | query }                  → id/name/state/targetDate of each maintained project
-list_issues       { project, limit: 250,
-                    fields: ["id","title","status","statusType","labels",
-                            "projectMilestone","priority","updatedAt","url","assignee"] }
-list_issues       { project, state: "backlog" }       → the grooming set
-list_milestones   { project }                         → names, target dates
-list_cycles       { team }                            → only if the team runs cycles
-list_issue_labels { team }                            → verify `agent-maintained` exists before using it
-```
-
-Ask for `fields` explicitly: the default payload is large and a full backlog will crowd out the diff you still need to read.
-
-### Close the loop — phase 3
+### 1. Pull (one call, ~400 tokens)
 
 ```
-save_issue { id: "AGT-45", state: "Done",
+list_issues { team: "AgentJoey", state: "backlog", limit: 10,
+              fields: ["id","title","priority","labels","projectMilestone","estimate"] }
+```
+
+**`fields` is not optional.** The default payload carries descriptions: 5–10k tokens for a real backlog, to choose one issue. Narrow further when you can:
+
+```
+list_issues { project: "Website", state: "backlog", limit: 5, priority: 1, fields: [...] }  # urgent first
+list_issues { cycle: "current", state: "backlog", limit: 10, fields: [...] }                # cycle-driven teams
+```
+
+### 2. Read the one you picked (~300–1,500 tokens)
+
+```
+get_issue { id: "AGT-123" }
+```
+
+Only the chosen one. Reading the runners-up is pure waste — you already have their titles.
+
+### 3. Claim (~150 tokens)
+
+```
+save_issue { id: "AGT-123", state: "In Progress", assignee: "me" }
+```
+
+Skip when `workLoop.claim` is false.
+
+### 4. Close (~200 tokens, once, at the end)
+
+```
+save_issue { id: "AGT-123", state: "Done",
              links: [{ url: "https://github.com/o/r/pull/42", title: "PR #42" }] }
 ```
 
-Record work that shipped without an issue (create straight into the done state):
+Follow-ups you actually found, capped at `maxFollowUpsPerTask` (3):
 
 ```
-save_issue { team: "AgentJoey", project: "Website", title: "Ship hero section",
-             state: "Done", labels: ["agent-maintained"],
-             links: [{ url: "<pr url>", title: "PR #43" }],
-             description: "Shipped in 3f2a1b…\n\n<what changed, one paragraph>\n\n<!-- roadmap-sync: 3f2a1b -->" }
+save_issue { team: "AgentJoey", project: "Website", title: "Hero image lacks alt text",
+             state: "Backlog", priority: 3, addLabels: ["agent-maintained"],
+             description: "Found while shipping AGT-123. <one line of what and where>.\n\n<!-- roadmap-sync: 3f2a1b -->" }
 ```
 
-- `id` present = update, absent = create. Passing `id` on a create is the classic accidental-overwrite bug.
-- Use `addLabels` (append-only), not `labels` (replaces the whole set and silently drops a human's labels).
-- Use `patch` with `old_string`/`new_string` to edit part of a long description instead of resending it — safer against concurrent human edits.
-- `state` takes a state *type or name* (`"Done"`, `"completed"`, `"backlog"`); use the repo's configured `doneState`.
+Keep the body to a few lines. Description text is a **recurring** cost — every future pull and every future reader pays it again.
 
-### Groom and forecast — phase 4
+### Rules that prevent the expensive mistakes
+
+- `id` present = update, absent = create. Passing `id` on a create is the classic accidental-overwrite.
+- `addLabels` (append-only), **not** `labels` (replaces the set and drops a human's labels).
+- `patch` with `old_string`/`new_string` to edit part of a long body instead of resending it.
+- `state` takes a state type or name (`"Done"`, `"completed"`, `"backlog"`) — use the configured `doneState`.
+- A failed write does not block development. Report the issue ID as unsynced; the repair pass will catch it because your commit carries the identifier.
+
+## B. The repair pass — only for unticketed commits
+
+Read before writing, and read narrowly: the gate already told you which commits and which projects are in scope.
 
 ```
-save_issue      { id: "AGT-77", priority: 2, milestone: "M2" }     # 1=Urgent … 4=Low
-save_milestone  { project: "Website", id: "M2", description: "…" } # targetDate only if autonomy allows
-save_comment    { issueId: "AGT-77", body: "Roadmap proposal: …" } # the "propose" path
+list_issues   { project: "Website", limit: 50,
+                fields: ["id","title","status","statusType","labels","projectMilestone","url"] }
+list_milestones { project: "Website" }
+```
+
+Then, per unticketed commit that represents real work:
+
+```
+save_issue { team: "AgentJoey", project: "Website", title: "Fix signup 500",
+             state: "Done", addLabels: ["agent-maintained"],
+             links: [{ url: "<commit or PR url>", title: "7aff4a4" }],
+             description: "Hotfix shipped outside the backlog.\n\n<!-- roadmap-sync: 7aff4a4 -->" }
+```
+
+Search before you create: `list_issues { query: "<title words>" }`. A near-title match is a match.
+
+## C. Roadmap review — projects and milestones only
+
+No issue-by-issue reconciliation. Recompute progress, then at most one update per project, only when a human-visible fact changed:
+
+```
 save_status_update {
   type: "project", project: "Website", health: "atRisk",
-  body: "Sync 3f2a1b…9c1d0e (14 commits, 5 merges).\n\nShipped: AGT-12, AGT-45.\nMilestone M2: 4/7 issues, target 2026-10-01; at ~1.5 issues/week the remaining 3 land ~2026-10-08.\nProposal: move M2 target or cut AGT-51 — needs a human call." }
+  body: "Milestone M2: 4/7 issues done. Target 2026-10-01; at ~1.5 issues/week the remaining 3 land ~2026-10-08.\nProposal: move the target or cut AGT-51 — needs a human call." }
 ```
 
-One status update per project per sync, only when something changed, always citing the commit range.
+Health must be justified by numbers, not mood. Never move a target date yourself.
 
-## B. GraphQL fallback (`LINEAR_API_KEY`)
+## D. GraphQL fallback (`LINEAR_API_KEY`)
 
 ```bash
 linear() {  # usage: linear '<query>' '<json variables>'
   curl -sS https://api.linear.app/graphql \
-    -H "Authorization: $LINEAR_API_KEY" \
-    -H "Content-Type: application/json" \
+    -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
     --data "$(python3 -c 'import json,sys;print(json.dumps({"query":sys.argv[1],"variables":json.loads(sys.argv[2] or "{}")}))' "$1" "${2:-}")"
 }
 
-# issues in a project
-linear 'query($p:String!){ project(id:$p){ name issues(first:250){ nodes{ identifier title state{name type} priority url } } } }' '{"p":"<project-uuid>"}'
+# top of backlog, minimal fields
+linear 'query($t:String!){ team(id:$t){ issues(first:10, filter:{state:{type:{eq:"backlog"}}}){ nodes{ identifier title priority estimate labels{nodes{name}} } } } }' '{"t":"<team-uuid>"}'
 
-# move an issue to done
+# claim / close
 linear 'mutation($id:String!,$s:String!){ issueUpdate(id:$id,input:{stateId:$s}){ success } }' '{"id":"<uuid>","s":"<state-uuid>"}'
 
 # create
 linear 'mutation($i:IssueCreateInput!){ issueCreate(input:$i){ success issue{ identifier url } } }' '{"i":{"teamId":"<uuid>","title":"…","stateId":"<uuid>","description":"…"}}'
 ```
 
-Never echo `LINEAR_API_KEY`, never paste it into a commit, a Linear body, or a PR description. Read it from the environment only.
+Never echo `LINEAR_API_KEY`, and never paste it into a commit, a Linear body, or a PR description.
 
 ## Failure handling
 
 | Symptom | Do this |
 |---|---|
-| Auth/permission error | Stop. Report it. Do **not** `--record`. |
-| Rate limited (429) | Back off, finish the remaining writes, then record — or stop and report the half-done set. |
-| Project/team name not found | Stop and ask; do not create it (creation is `propose`-only). |
-| A write fails midway | Report exactly what did and did not land, do not record, let the retry reconcile. |
+| Auth/permission error | Stop touching Linear, keep developing, report it. Do **not** `--record`. |
+| Rate limited (429) | Do not retry-loop. Finish the dev work, report what is unsynced. |
+| Project/team not found | Stop and ask; creating one is `propose`-only. |
+| A write fails midway | Report exactly what landed and what did not, do not record, let the retry reconcile. |

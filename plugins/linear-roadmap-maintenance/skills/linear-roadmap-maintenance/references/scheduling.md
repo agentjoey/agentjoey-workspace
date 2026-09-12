@@ -1,15 +1,46 @@
-# Wiring the trigger
+# Wiring the triggers
 
-Two trigger shapes, and you usually want both:
+Three different things get triggered, and they cost wildly different amounts. Do not wire them the same way.
 
-- **Fixed frequency** — a clock fires (cron, CI schedule). Catches drift even when nobody pushes.
-- **Work volume** — N merged PRs / commits since the last sync. Catches a busy week before the clock does.
+| What | When | Cost |
+|---|---|---|
+| **The work loop** | Whenever an agent has capacity to build something | ~1–2.5k tokens of upkeep on top of work it was doing anyway |
+| **The repair pass** | Cadence, **and only if unticketed work exists** | 8–40k — this is the one worth avoiding |
+| **The roadmap review** | Every `roadmapReviewDays` | ~2–5k (projects and milestones only) |
 
-The gate decides in both cases, so every mechanism below is the same one line: *run the gate, sync only if due*. Nothing here needs to know the thresholds.
+The gate decides for the last two, so every mechanism below is the same line: *run the gate, act only if due*. When the loop is healthy the gate exits 10 and nothing else runs — one script execution, no model tokens.
 
 ---
 
-## 1. GitHub Actions — schedule + post-merge (recommended for a shared repo)
+## 1. Starting the work loop
+
+There is nothing to schedule here: the loop starts when someone (or something) gives an agent capacity.
+
+- **A human:** `/next-task`, or "what should I pick up?"
+- **Session start** — offer, never auto-start. `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "printf '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"This repo takes work from Linear. If the user has no task in mind, offer to run /next-task (pull the top backlog issue by priority).\"}}'"
+      }]
+    }]
+  }
+}
+```
+
+- **Unattended batch** (a nightly agent that works the queue): one issue per run, `maxIssuesPerSession` respected, and only with `workLoop.claim: true` so runs cannot collide.
+
+```cron
+0 2 * * 1-5 cd ~/code/myrepo && claude -p "/next-task" >> ~/.local/state/next-task.log 2>&1
+```
+
+Do not schedule the loop more often than you can review its output. An agent shipping unreviewed PRs at 3am is a throughput problem, not a scheduling win.
+
+## 2. The repair pass — schedule + push, gated
 
 `.github/workflows/roadmap-sync.yml`:
 
@@ -17,12 +48,12 @@ The gate decides in both cases, so every mechanism below is the same one line: *
 name: Linear roadmap sync
 on:
   schedule:
-    - cron: "0 1 * * 1"        # Mondays 01:00 UTC — the fixed-frequency half
+    - cron: "0 1 * * 1"        # weekly clock
   push:
-    branches: [main]           # the work-volume half; the gate no-ops when under threshold
+    branches: [main]           # volume half; the gate no-ops on ticketed work
   workflow_dispatch:
 
-concurrency:                   # never two syncs at once — that is how duplicates appear
+concurrency:                   # two syncs at once is how duplicates appear
   group: roadmap-sync
   cancel-in-progress: false
 
@@ -32,82 +63,66 @@ jobs:
     permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }          # the gate needs history to measure the delta
+        with: { fetch-depth: 0 }          # the gate needs history
       - id: gate
         run: |
-          python3 plugins/linear-roadmap-maintenance/skills/linear-roadmap-maintenance/scripts/roadmap-gate.py --check \
-            && echo "due=true" >> "$GITHUB_OUTPUT" || echo "due=false" >> "$GITHUB_OUTPUT"
+          GATE=plugins/linear-roadmap-maintenance/skills/linear-roadmap-maintenance/scripts/roadmap-gate.py
+          if OUT=$(python3 "$GATE" --check); then
+            echo "due=true" >> "$GITHUB_OUTPUT"
+            echo "mode=$(echo "$OUT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["mode"])')" >> "$GITHUB_OUTPUT"
+          else
+            echo "due=false" >> "$GITHUB_OUTPUT"; echo "$OUT"
+          fi
       - if: steps.gate.outputs.due == 'true'
         uses: anthropics/claude-code-action@v1
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: "Run the linear-roadmap-maintenance skill's sync pass, then commit the updated .linear-roadmap.state.json."
+          prompt: "Run the linear-roadmap-maintenance skill's ${{ steps.gate.outputs.mode }} pass, then commit .linear-roadmap.state.json."
 ```
 
-Check the action's current inputs before copying — they change. The gate step is the load-bearing part; the agent step is interchangeable.
+The gate step is the load-bearing part — it is what keeps a `push` trigger from costing anything on a normal day. Check the action's current inputs before copying; they change.
 
-## 2. Local cron — Claude Code or Codex headless
+Local equivalent:
 
 ```cron
-# Mondays 09:00 local — Claude Code
-0 9 * * 1 cd ~/code/myrepo && /usr/local/bin/claude -p "/roadmap-sync" >> ~/.local/state/roadmap-sync.log 2>&1
-
-# Codex, same idea
-0 9 * * 1 cd ~/code/myrepo && codex exec "Read .claude/skills/linear-roadmap-maintenance/SKILL.md and run the sync pass." >> ~/.local/state/roadmap-sync.log 2>&1
+0 9 * * 1 cd ~/code/myrepo && claude -p "/roadmap-sync" >> ~/.local/state/roadmap-sync.log 2>&1
 ```
 
-The agent runs the gate first and exits quietly when not due, so a daily cron is fine too — it just no-ops most days.
+## 3. Nudges, not launches
 
-In a Claude Code session that stays alive (including the web/remote sessions), a scheduled trigger or `/loop` can replace cron; keep the interval at hours, not minutes.
-
-## 3. Work-volume triggers, locally
-
-**`.git/hooks/post-merge`** (and `post-commit` if you don't use branches) — notify, don't auto-launch:
+**`.git/hooks/post-merge`** — print, never spend:
 
 ```bash
 #!/usr/bin/env sh
 GATE="plugins/linear-roadmap-maintenance/skills/linear-roadmap-maintenance/scripts/roadmap-gate.py"
 [ -f "$GATE" ] || exit 0
-python3 "$GATE" --check >/dev/null 2>&1 && echo "▲ Linear roadmap sync is due — run /roadmap-sync"
+python3 "$GATE" --check >/dev/null 2>&1 && echo "▲ unticketed work has piled up — run /roadmap-sync"
 exit 0
 ```
 
-A hook must never silently spend tokens or write to Linear behind the user's back. Print, let a human or the next session act.
-
-**Claude Code `SessionStart` hook** — the same signal, delivered where the agent will actually see it. In `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [{
-      "hooks": [{
-        "type": "command",
-        "command": "python3 plugins/linear-roadmap-maintenance/skills/linear-roadmap-maintenance/scripts/roadmap-gate.py --check >/dev/null && printf '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"A Linear roadmap sync is due. Offer to run the linear-roadmap-maintenance sync pass before other work.\"}}' || true"
-      }]
-    }]
-  }
-}
-```
+A hook must never silently spend tokens or write to Linear behind the user's back.
 
 ## 4. Codex
 
-Codex has no skill loader, so point it at the file and let it read:
-
-- Add the plugin under `.claude/skills/` (or anywhere in the repo) and reference it from `AGENTS.md`:
+Codex has no skill loader, so point it at the file. In `AGENTS.md`:
 
 ```markdown
-## Linear roadmap
+## Work comes from Linear
 
-This repo's roadmap and backlog live in Linear and are maintained by agents.
-Before finishing a session that merged work, run:
+Pick work from the Linear backlog, do not invent it. To start a task, read
+`plugins/linear-roadmap-maintenance/skills/linear-roadmap-maintenance/SKILL.md`
+and follow the work loop: pull the top of the backlog with an explicit field
+list, claim one issue, put its identifier in the branch and commit subject
+(`feat: hero (AGT-123)`), and close it with the PR link when done.
+
+Before ending a session, run:
 `python3 plugins/linear-roadmap-maintenance/skills/linear-roadmap-maintenance/scripts/roadmap-gate.py --check`
-If it exits 0, read `plugins/linear-roadmap-maintenance/skills/linear-roadmap-maintenance/SKILL.md`
-and run the sync pass before ending the session. If it exits 10, do nothing.
+Exit 0 → run the pass it names. Exit 10 → do nothing; that is the normal case.
 ```
 
-- Give Codex the Linear MCP server in `~/.codex/config.toml` so it uses the same tools:
+Give Codex the same tools via `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.linear]
@@ -115,20 +130,22 @@ command = "npx"
 args = ["-y", "mcp-remote", "https://mcp.linear.app/sse"]
 ```
 
-Without MCP, Codex uses the GraphQL fallback in `linear-operations.md` with `LINEAR_API_KEY` from the environment.
+Without MCP it uses the GraphQL fallback in `linear-operations.md` with `LINEAR_API_KEY`.
 
 ---
 
 ## Picking thresholds
 
+Thresholds only ever count **unticketed** work, so a healthy repo can leave them tight without paying anything.
+
 | Repo shape | Start with |
 |---|---|
-| Solo project, a few pushes a week | `everyDays: 7`, `everyMergedPRs: 5`, `everyCommits: 25` |
-| Team repo, many PRs a day | `everyDays: 3`, `everyMergedPRs: 10`, `everyCommits: 999` |
-| Agent-heavy repo (many small commits) | `everyDays: 2`, `everyMergedPRs: 3`, `everyCommits: 15` |
+| Solo, work loop used consistently | `everyDays: 7`, `everyUnticketedMerges: 3`, `everyUnticketedCommits: 10` |
+| Team repo, humans push outside Linear | `everyDays: 3`, `everyUnticketedMerges: 5`, `everyUnticketedCommits: 15` |
+| Mostly agent-driven, few humans | `everyDays: 14`, `everyUnticketedCommits: 5`, `roadmapReviewDays: 14` |
 
-If syncs report "nothing changed" repeatedly, the thresholds are too tight. If a human has to fix the roadmap by hand between syncs, they are too loose.
+Symptoms: repair passes that repeatedly find nothing → thresholds too tight, or `ignoreCommitPatterns` too narrow. Humans fixing the roadmap by hand → too loose. Repair passes that find *a lot* every time → the work loop is not being used; fix that, not the cadence.
 
 ## Two agents, one repo
 
-Concurrency is the real hazard: two syncs at once create duplicate issues. Use the CI `concurrency` group, keep cron schedules apart, and let the committed state file be the tiebreaker — a sync that starts with a stale `lastSyncedSha` reconciles work the other one already handled, which the idempotency rules absorb but should not be routine.
+Concurrency is the real hazard. `workLoop.claim: true` so two agents cannot take the same issue; a `concurrency` group so two repair passes cannot run at once; separated cron schedules; and the committed state file as the tiebreaker.
