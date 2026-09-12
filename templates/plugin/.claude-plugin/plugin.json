@@ -1,0 +1,10 @@
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "One sentence on the failure this plugin fixes — not a list of features.",
+  "author": {
+    "name": "agentjoey",
+    "email": "theagentjoey@gmail.com"
+  },
+  "keywords": ["keyword", "another"]
+}

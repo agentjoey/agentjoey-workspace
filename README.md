@@ -1,206 +1,65 @@
-# AgentJoey Workspace 🚀
+# agentjoey-workspace
 
-一个基于 **Turborepo** 的 monorepo，用于管理所有的产品项目。
+**agentjoey 的个人 Claude Code skill / plugin 合集。**
 
-## 📦 项目结构
+这个仓库本身就是一个 [plugin marketplace](https://docs.claude.com/en/docs/claude-code/plugins)：clone 下来零依赖、不需要 `npm install`，加进 Claude Code 就能直接装。
 
-```
-agentjoey-workspace/
-├── apps/                    # 应用程序
-│   ├── website/            # 主网站
-│   ├── dashboard/          # SaaS 管理面板 (计划中)
-│   ├── api-service/        # API 服务 (计划中)
-│   └── documentation/      # 文档站点
-│
-├── packages/               # 共享包
-│   ├── ui/                 # UI 组件库
-│   ├── utils/              # 工具函数
-│   ├── hooks/              # React Hooks
-│   ├── eslint-config/      # ESLint 配置
-│   └── typescript-config/  # TypeScript 配置
-│
-└── turbo.json              # Turborepo 配置
-```
-
-## 🚀 快速开始
-
-### 前置要求
-- Node.js >= 18
-- npm >= 9
-
-### 安装
+## 安装
 
 ```bash
-# Clone 仓库
-git clone https://github.com/agentjoey/agentjoey-workspace.git
-cd agentjoey-workspace
-
-# 安装依赖
-npm install
+/plugin marketplace add agentjoey/agentjoey-workspace
+/plugin install <plugin-name>@agentjoey-workspace
 ```
 
-### 开发
+只想要其中某个 skill，不装整个 plugin：
 
 ```bash
-# 启动所有应用的开发模式
-npm run dev
-
-# 只启动 website
-cd apps/website && npm run dev
-
-# 只启动 dashboard
-cd apps/dashboard && npm run dev
+cp -R plugins/<plugin>/skills/<skill> ~/.claude/skills/
 ```
 
-### 构建
+## 收录的 plugin
+
+| Plugin | 解决的问题 |
+|---|---|
+| [**behavior-driven-testing**](plugins/behavior-driven-testing) | 门禁全绿但 bug 照样上线 —— 因为测试打在了方便的内部边界上、喂的是 happy synthetic data。规定**在哪里**测、以及什么才算「真的能跑」：真实边界 + 真实数据形状/量级，加上对运行中系统的探针。 |
+| [**linear-roadmap-maintenance**](plugins/linear-roadmap-maintenance) | agent 写完代码没人更新 Linear，而事后用定时任务从 60 个 commit 重建状态要 8–40k token 还容易猜错。把 Linear 变成**任务队列**：按优先级取单 → 做 → 同一 session 关单，维护成本压到一次任务的 ~3%。 |
+
+## 仓库结构
+
+```
+.claude-plugin/marketplace.json   # marketplace 清单 —— 新 plugin 必须登记在这里
+plugins/<name>/                   # 每个 plugin 一个目录
+  .claude-plugin/plugin.json      #   名字/版本/描述（name 必须与目录名一致）
+  README.md                       #   这个 plugin 解决什么问题
+  skills/<skill>/SKILL.md         #   带 YAML frontmatter，name 必须与目录名一致
+              references/*.md     #   按需加载的细节，保持 SKILL.md 精简
+              scripts/*           #   确定性的部分交给脚本，别让模型去算
+  commands/*.md                   #   斜杠命令（可选）
+templates/plugin/                 # 新 plugin 的骨架，复制即用
+scripts/validate.py               # 一致性校验，CI 也跑它
+CLAUDE.md                         # 在本仓库里干活的约定
+```
+
+## 加一个新 plugin
 
 ```bash
-# 构建所有应用和包
-npm run build
-
-# 构建特定应用
-cd apps/website && npm run build
+cp -R templates/plugin plugins/my-plugin
+mv plugins/my-plugin/skills/skill-name plugins/my-plugin/skills/my-skill
+# 改 plugin.json / SKILL.md 里的 name，登记进 .claude-plugin/marketplace.json，在上表加一行
+python3 scripts/validate.py -v
 ```
 
-### 其他命令
+写 skill 的具体约定见 [CLAUDE.md](CLAUDE.md)。
+
+## 校验
 
 ```bash
-# 代码检查
-npm run lint
-
-# 类型检查
-npm run check-types
-
-# 格式化代码
-npm run format
+python3 scripts/validate.py      # 只报错误
+python3 scripts/validate.py -v   # 连通过的检查一起列出
 ```
 
-## 🏗️ 技术栈
+检查 marketplace 登记项与磁盘上的目录是否对得上、`plugin.json` / `SKILL.md` 的 name 是否与目录名一致、description 是否缺失或超长、有没有「躺在 plugins/ 里但没人能装」的孤儿 plugin，以及 skill 脚本能否编译。纯标准库，无依赖；每次 push 和 PR 由 GitHub Actions 跑。
 
-- **Framework**: Next.js 14+
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **UI Components**: 自定义 + shadcn/ui
-- **Build Tool**: Turborepo
-- **Package Manager**: npm workspaces
+## License
 
-## 📚 应用说明
-
-### website
-- **端口**: 3000
-- **描述**: 主网站和落地页
-- **技术**: Next.js App Router + Tailwind
-
-### dashboard (计划中)
-- **端口**: 3001
-- **描述**: AI 代理管理面板
-- **技术**: Next.js + 数据可视化
-
-### api-service (计划中)
-- **端口**: 3002
-- **描述**: 后端 API 服务
-- **技术**: Next.js API Routes / Express
-
-## 📦 共享包
-
-### @workspace/ui
-UI 组件库，包含设计系统的所有组件。
-
-```tsx
-import { Button, Card } from '@workspace/ui';
-```
-
-### @workspace/utils
-通用工具函数。
-
-```ts
-import { formatDate, cn } from '@workspace/utils';
-```
-
-### @workspace/hooks
-React Hooks。
-
-```tsx
-import { useAuth, useLocalStorage } from '@workspace/hooks';
-```
-
-## 🛠️ 开发指南
-
-### 添加新应用
-
-```bash
-cd apps
-npx create-next-app@latest my-app --typescript --tailwind
-# 更新 turbo.json 和根 package.json
-```
-
-### 添加新包
-
-```bash
-cd packages
-mkdir my-package && cd my-package
-npm init -y
-# 配置 package.json name 为 @workspace/my-package
-```
-
-### 最佳实践
-
-1. **依赖管理**
-   - 共享依赖放在根 `package.json`
-   - 应用特有依赖放在各自 `package.json`
-
-2. **代码复用**
-   - UI 组件 → `@workspace/ui`
-   - 工具函数 → `@workspace/utils`
-   - 业务逻辑 → 各自应用内
-
-3. **环境变量**
-   - 使用 `.env.local`
-   - 绝不提交到 git
-
-4. **提交规范**
-   ```
-   feat: 新功能
-   fix: 修复
-   docs: 文档
-   refactor: 重构
-   chore: 杂项
-   ```
-
-## 🚀 部署
-
-### Vercel (推荐)
-
-每个应用可以独立部署到 Vercel：
-
-```bash
-# 部署 website
-cd apps/website
-vercel --prod
-
-# 部署 dashboard
-cd apps/dashboard
-vercel --prod
-```
-
-### 配置说明
-
-- 每个应用有自己的 `vercel.json` 配置
-- 共享包会自动构建
-- 环境变量在 Vercel Dashboard 中配置
-
-## 📄 相关文档
-
-- [项目结构说明](./PROJECT_STRUCTURE.md)
-- [Turborepo 文档](https://turbo.build/repo/docs)
-- [Next.js 文档](https://nextjs.org/docs)
-
-## 🔗 链接
-
-- **GitHub**: https://github.com/agentjoey/agentjoey-workspace
-- **Website**: (部署中)
-- **Dashboard**: (开发中)
-
-## 📝 License
-
-Private - All rights reserved
+Private — All rights reserved.

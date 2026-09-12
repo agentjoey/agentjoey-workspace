@@ -1,0 +1,15 @@
+name: Validate collection
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate marketplace, plugins and skills
+        run: python3 scripts/validate.py -v
