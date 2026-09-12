@@ -1,0 +1,19 @@
+{
+  "name": "linear-roadmap-maintenance",
+  "version": "1.0.0",
+  "description": "Let coding agents (Claude Code, Codex) keep a Linear roadmap and backlog honest on their own — on a cadence or after N merged PRs — by reconciling shipped git work against Linear issues, milestones and status updates, idempotently and within explicit autonomy limits.",
+  "author": {
+    "name": "agentjoey",
+    "email": "theagentjoey@gmail.com"
+  },
+  "keywords": [
+    "linear",
+    "roadmap",
+    "backlog",
+    "project-management",
+    "autonomous",
+    "scheduled",
+    "grooming",
+    "codex"
+  ]
+}

@@ -12,6 +12,11 @@
       "name": "behavior-driven-testing",
       "source": "./plugins/behavior-driven-testing",
       "description": "Test at the real boundary with real data and probe the running system before claiming a feature works. A green gate is not 'works'."
+    },
+    {
+      "name": "linear-roadmap-maintenance",
+      "source": "./plugins/linear-roadmap-maintenance",
+      "description": "Let agents keep a Linear roadmap and backlog honest on their own — on a cadence or after N merged PRs — reconciling shipped git work against Linear issues, milestones and status updates, idempotently and within explicit autonomy limits."
     }
   ]
 }
