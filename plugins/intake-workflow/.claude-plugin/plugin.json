@@ -1,0 +1,10 @@
+{
+  "name": "intake-workflow",
+  "version": "1.0.0",
+  "description": "Keep Linear free of undiscussed, shelved and never-finished issues: needs are discussed in Notion first, an issue is created only after the Owner confirms, a finished Milestone gets one closing record. Ships the rule block every repo carries and a script that renders, checks and applies it.",
+  "author": {
+    "name": "agentjoey",
+    "email": "theagentjoey@gmail.com"
+  },
+  "keywords": ["linear", "notion", "intake", "backlog", "agents-md", "workflow", "multi-agent"]
+}

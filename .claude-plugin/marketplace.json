@@ -17,6 +17,11 @@
       "name": "linear-roadmap-maintenance",
       "source": "./plugins/linear-roadmap-maintenance",
       "description": "Make Linear the work queue: pull the top backlog issue by priority, work it, close it in the same session. Reconciliation is the repair path, gated so it costs nothing when the loop is working."
+    },
+    {
+      "name": "intake-workflow",
+      "source": "./plugins/intake-workflow",
+      "description": "Keep Linear free of undiscussed and never-finished issues: discuss needs in Notion first, create a Linear issue only after the Owner confirms, write one closing record per finished Milestone. Ships the rule block each repo carries and a script to render, check and apply it."
     }
   ]
 }
