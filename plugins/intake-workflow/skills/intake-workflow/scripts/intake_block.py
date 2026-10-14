@@ -2,9 +2,9 @@
 """Render, check and apply the SHARED-INTAKE block in a repo's AGENTS.md.
 
     intake_block.py render --project P --linear-name N --linear-id P-AJ-18 [--formerly OLD]
-    intake_block.py check  DIR [DIR ...] [--expect-project P]
+    intake_block.py check  DIR [DIR ...] [--expect-project P] [--file NAME]
     intake_block.py apply  DIR --project P --linear-name N --linear-id P-AJ-18 [--formerly OLD]
-                               [--claude-pointer] [--dry-run]
+                               [--file NAME ...] [--claude-pointer] [--dry-run]
 
 `render` prints the block to stdout (use it when the repo is edited through an API
 instead of a checkout). `check` reports each repo's block version and project lines and
@@ -54,8 +54,8 @@ def render(project: str, linear_name: str, linear_id: str, formerly: str | None)
     return out if out.endswith("\n") else out + "\n"
 
 
-def agents_path(directory: str) -> str:
-    return os.path.join(directory, "AGENTS.md")
+def agents_path(directory: str, name: str = "AGENTS.md") -> str:
+    return os.path.join(directory, name)
 
 
 def cmd_render(args: argparse.Namespace) -> int:
@@ -67,16 +67,16 @@ def cmd_check(args: argparse.Namespace) -> int:
     current = template_version()
     bad = 0
     for directory in args.dirs:
-        path = agents_path(directory)
+        path = agents_path(directory, args.file)
         if not os.path.exists(path):
-            print(f"MISSING   {directory}: no AGENTS.md")
+            print(f"MISSING   {directory}: no {args.file}")
             bad += 1
             continue
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
         begin = BEGIN_RE.search(text)
         if not begin:
-            print(f"MISSING   {directory}: no SHARED-INTAKE block")
+            print(f"MISSING   {directory}: no SHARED-INTAKE block in {args.file}")
             bad += 1
             continue
         version = int(begin.group(1))
@@ -98,31 +98,32 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def cmd_apply(args: argparse.Namespace) -> int:
     block = render(args.project, args.linear_name, args.linear_id, args.formerly)
-    path = agents_path(args.dir)
-    existing = ""
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as fh:
-            existing = fh.read()
-    if BLOCK_RE.search(existing):
-        updated = BLOCK_RE.sub(lambda _m: block, existing, count=1)
-        action = "replaced"
-    else:
-        sep = "" if not existing else ("\n" if existing.endswith("\n") else "\n\n")
-        updated = existing + sep + ("\n" if existing else "") + block
-        action = "inserted"
-    if args.dry_run:
-        print(f"[dry-run] would have {action} the block in {path}")
-        return 0
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(updated)
-    print(f"{action} the block in {path}")
-    if args.claude_pointer:
+    for name in args.file or ["AGENTS.md"]:
+        path = agents_path(args.dir, name)
+        existing = ""
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                existing = fh.read()
+        if BLOCK_RE.search(existing):
+            updated = BLOCK_RE.sub(lambda _m: block, existing, count=1)
+            action = "replaced"
+        else:
+            sep = "" if not existing else ("\n" if existing.endswith("\n") else "\n\n")
+            updated = existing + sep + ("\n" if existing else "") + block
+            action = "inserted"
+        if args.dry_run:
+            print(f"[dry-run] would have {action} the block in {path}")
+            continue
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(updated)
+        print(f"{action} the block in {path}")
+    if args.claude_pointer and not args.dry_run:
         claude = os.path.join(args.dir, "CLAUDE.md")
         text = ""
         if os.path.exists(claude):
             with open(claude, encoding="utf-8") as fh:
                 text = fh.read()
-        if "@AGENTS.md" not in text:
+        if "@AGENTS.md" not in text and "SHARED-INTAKE" not in text:
             with open(claude, "w", encoding="utf-8") as fh:
                 fh.write("@AGENTS.md\n\n" + text if text else "@AGENTS.md\n")
             print(f"added @AGENTS.md to {claude}")
@@ -146,12 +147,14 @@ def main() -> int:
     p_check = sub.add_parser("check")
     p_check.add_argument("dirs", nargs="+")
     p_check.add_argument("--expect-project")
+    p_check.add_argument("--file", default="AGENTS.md", help="file to inspect in each directory")
     p_check.set_defaults(func=cmd_check)
 
     p_apply = sub.add_parser("apply")
     p_apply.add_argument("dir")
     project_args(p_apply)
-    p_apply.add_argument("--claude-pointer", action="store_true", help="make sure CLAUDE.md imports AGENTS.md")
+    p_apply.add_argument("--file", action="append", help="file to write (repeatable); default AGENTS.md")
+    p_apply.add_argument("--claude-pointer", action="store_true", help="add '@AGENTS.md' to CLAUDE.md unless it already imports it or carries the block")
     p_apply.add_argument("--dry-run", action="store_true")
     p_apply.set_defaults(func=cmd_apply)
 
