@@ -1,15 +1,22 @@
-<!-- BEGIN SHARED-INTAKE v1 -->
+<!-- BEGIN SHARED-INTAKE v2 -->
 ## Requirement intake and work tracking
 
 Owner decision 2026-10-15. Needs are discussed in Notion first; Linear holds only work the Owner has confirmed (approved on the Requests page, or confirmed directly in a session). The Intake page holds the stage table, the page templates and the databases: https://app.notion.com/p/3f98c5850c4380588d3fcfa22d8bc62e
 
 - Project: `{{PROJECT}}` (the value of `Project` in the Requests and Slices databases; always filter by it).
+- Notion data sources: **Requests** `b20c9483-9aab-42fe-bea0-edafb0ee193d`, **Slices** `53cfefa3-69e8-4fcd-99c9-296946092dd2`. Query them directly by id with `Project = {{PROJECT}}`. Do not find them by searching Notion.
 - Linear: team `AJ`, project `{{LINEAR_NAME}}` ({{LINEAR_ID}}). Resolve the project by its id, because names change. A slice is a **Milestone** inside this project, named after the slice goal.{{FORMERLY}}
+
+### Where to look
+
+- Needs, requests, ideas, "pending", "inbox", "approved" → the Requests database (Notion). Issues, tickets, tasks, "todo", "in progress" → Linear. "How many pending requests" is a Requests question, so answer it from Notion and never from Linear counts.
+- Read only rows where `Project = {{PROJECT}}`. Do not open other projects' rows or pages, and do not search Notion by keyword (search returns other projects' pages). Notion pages that predate this flow (old backlogs, decision lists) are not the source for this flow; read them only when the Owner points at one.
+- If Notion is not reachable in this tool, say so. Do not substitute a Linear count for a Requests count.
 
 ### Two kinds of session
 
 - **Discussion session:** reads and writes Requests, analyses, records the discussion on the request page, and after the Owner confirms creates the Linear Milestone and issues. Writes no code.
-- **Development session:** takes issues from Linear and implements them. By default it reads only Linear; it reads Notion only when the Owner asks.
+- **Development session:** takes issues from Linear and implements them. It reads Requests when the Owner asks about requests (see above); otherwise it reads only Linear.
 
 ### Rules
 
