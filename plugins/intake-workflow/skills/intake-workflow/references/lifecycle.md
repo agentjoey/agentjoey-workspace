@@ -27,8 +27,7 @@ Owner supplies three things: the `Project` name, the Linear project (create it a
 Inventory first, read-only, then rule once per project.
 
 - **Notion legacy trackers** (backlog mirrors, task tables, decision lists): closed items go to one Issue archive page (id, title, result, date); open needs with **no** live Linear issue go to Requests (`Pending` when they need a ruling, `Inbox` otherwise); items that mirror a live Linear issue get nothing, Linear owns them. Trash a tracker only after the counts match. Research and spec pages stay.
-- **Old Linear project with open issues:** default is **drain**. Leave the issues where they are, add `--draining "P-AJ-n Old name"` to the block, create nothing new there, and remove the line when the project is empty. Moving issues is possible (`save_issue` with `project`) but drops their Milestones, so only on the Owner's request.
-- **Linear issues that are really undecided ideas** (Backlog, "decision", no acceptance criteria): do not bulk-cancel. Put a keep / convert / drop table in front of the Owner; converted ones become Requests pages and are set to Canceled with a comment pointing at the page.
+- **Old Linear project with open issues:** the project's own session assesses each open issue (Owner ruling 2026-10-15). Still valid → moved into the fixed project (Milestones recreated, first line `Confirmed: …`); everything else → a Requests page (`Inbox` or `Pending`) and the issue set to Canceled with a link. Closed issues go to one Issue archive page. Use `references/legacy-sweep-prompt.md`. The `--draining "P-AJ-n Old name"` line is only for the case where the Owner wants the old project to run down in place (TalentVault did).
 
 ## B. Rename a project
 

@@ -45,11 +45,11 @@ Rename in Linear (the id stays), rename the `Project` option in the Notion UI fo
 Follow `references/lifecycle.md` section A (new project) or D (another repo of a known project). The short form:
 
 1. Notion: add the `Project` option to Requests and Slices. Linear: one live project with the fixed name; note its id.
-2. `python3 "$SKILL_DIR/scripts/intake_block.py" apply <repo dir> --project "<P>" --linear-name "<N>" --linear-id <P-AJ-n> --claude-pointer` (add `--file` for each instruction file the repo really uses; add `--draining "P-AJ-n Old name"` while an older project still holds open issues). No checkout? Use `render`.
+2. `python3 "$SKILL_DIR/scripts/intake_block.py" apply <repo dir> --project "<P>" --linear-name "<N>" --linear-id <P-AJ-n> --claude-pointer` (add `--file` for each instruction file the repo really uses; add `--draining "P-AJ-n Old name"` only if the Owner wants an older project to run down in place). No checkout? Use `render`.
 3. The block contains the Intake page URL and the two data source ids, which grant no access by themselves, so public repos are fine.
 4. Acceptance test in a fresh session after `git pull`: `references/lifecycle.md` section G.
 
-Legacy content (old Notion trackers, old Linear projects) is swept once per project under section A2; the rules themselves apply to needs that appear afterwards.
+Legacy content (old Notion trackers, old Linear projects) is swept once per project under section A2 with `references/legacy-sweep-prompt.md`; the rules themselves apply to needs that appear afterwards.
 
 ## Red flags — stop and reconsider
 
