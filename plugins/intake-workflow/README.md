@@ -9,7 +9,11 @@ Needs are discussed in a Notion Requests database first. A Linear issue is creat
 - `skills/intake-workflow/SKILL.md` — when to create a Linear issue, where to log an unconfirmed idea, how to close a Milestone, how to rename a project, how to adopt the flow in another repo.
 - `skills/intake-workflow/references/shared-intake-block.md` — the canonical rule block. Every repo carries a copy between `SHARED-INTAKE` markers in `AGENTS.md`; only the project lines differ.
 - `skills/intake-workflow/scripts/intake_block.py` — `render`, `check`, `apply`. Zero dependencies.
-- `/adopt-intake` and `/intake-check` — slash commands wrapping the script.
+- `/adopt-intake` and `/intake-check` — add or update the block, and report which repos carry which version.
+- `/intake-verify` — preflight for one repo: block, checkout, Notion and Linear reachability, name clashes, plus the three questions to ask a fresh session.
+- `/intake-sweep` — legacy cleanup for a project: still-valid Linear issues move into the fixed project, the rest return to Notion.
+- `/intake-rename` — rename a project in Linear, the Notion option and every repo block, then find stragglers.
+- `references/lifecycle.md` — the procedure for onboarding, renaming, retiring and upgrading; the skill's Recipe 6 covers switching between projects.
 
 ## Install
 

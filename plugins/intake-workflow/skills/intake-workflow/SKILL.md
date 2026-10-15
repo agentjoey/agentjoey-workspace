@@ -1,6 +1,6 @@
 ---
 name: intake-workflow
-description: Use when a repo's AGENTS.md contains a SHARED-INTAKE block, or when you are about to create a Linear issue, log a new idea or defect found while coding, create follow-up issues at the end of a task, close the last issue of a Linear Milestone, rename a project or repo, onboard a project, or add the intake flow to another repo.
+description: Use when a repo's AGENTS.md or CLAUDE.md contains a SHARED-INTAKE block, when asked about pending, inbox or approved requests or the backlog of a project, when switching to or working on another project, when onboarding or renaming a project, or when about to create a Linear issue, log an idea or defect found while coding, create follow-up issues, or close the last issue of a Linear Milestone.
 ---
 
 # Intake workflow: Notion first, Linear only when confirmed
@@ -51,13 +51,20 @@ Follow `references/lifecycle.md` section A (new project) or D (another repo of a
 
 Legacy content (old Notion trackers, old Linear projects) is swept once per project under section A2 with `references/legacy-sweep-prompt.md`; the rules themselves apply to needs that appear afterwards.
 
+## Recipe 6 — switching projects
+
+1. **Identity comes from the repo's block and nowhere else.** On entering a repo, or when asked about another project, read that repo's `SHARED-INTAKE` block (local file; through GitHub when it is not checked out) and use its `Project` value and Linear id. Never reuse the previous project's values, ids or Notion rows.
+2. Working on several projects from one session: name the target project in every Notion filter and every Linear call, keep the results apart, and write only to the target project's rows.
+3. No block in the directory means the project is not onboarded. Say so and offer Recipe 5. Do not guess a project name.
+4. Fetch before concluding a rule is missing: a checkout that was not pulled looks exactly like a rule that does not work.
+
 ## Red flags — stop and reconsider
 
 - Creating a Linear issue "so it is not forgotten" without the Owner having said yes
 - A description whose first line is neither `Request:` nor `Confirmed:`
 - A Milestone named "Misc", "Maintenance" or "Backlog" (it never closes; that is how the old project filled up)
 - Writing progress into Notion after the Request is `Approved` (Linear owns progress from then on)
-- Searching Requests without the `Project` filter
+- Searching Requests without the `Project` filter, or carrying one project's values into another
 - Deleting or renaming Notion `Project` options through an API tool without re-pointing rows
 
 ## Example
