@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Render, check and apply the SHARED-INTAKE block in a repo's AGENTS.md.
 
-    intake_block.py render --project P --linear-name N --linear-id P-AJ-18 [--formerly OLD]
+    intake_block.py render --project P --linear-name N --linear-id P-AJ-18 [--formerly OLD] [--draining "P-AJ-12 Mairn MVP"]
     intake_block.py check  DIR [DIR ...] [--expect-project P] [--file NAME]
-    intake_block.py apply  DIR --project P --linear-name N --linear-id P-AJ-18 [--formerly OLD]
+    intake_block.py apply  DIR --project P --linear-name N --linear-id P-AJ-18 [--formerly OLD] [--draining "P-AJ-12 Mairn MVP"]
                                [--file NAME ...] [--claude-pointer] [--dry-run]
 
 `render` prints the block to stdout (use it when the repo is edited through an API
@@ -40,14 +40,19 @@ def template_version() -> int:
     return int(match.group(1))
 
 
-def render(project: str, linear_name: str, linear_id: str, formerly: str | None) -> str:
+def render(project: str, linear_name: str, linear_id: str, formerly: str | None, draining: str | None = None) -> str:
     text = template_text()
     former = f" Formerly: `{formerly}`." if formerly else ""
+    drain = ""
+    if draining:
+        drain_id, _, drain_name = draining.partition(" ")
+        drain = f" Open work from before this flow still sits in project `{drain_name or drain_id}` ({drain_id}): read it for what to build, and create nothing new there."
     out = (
         text.replace("{{PROJECT}}", project)
         .replace("{{LINEAR_NAME}}", linear_name)
         .replace("{{LINEAR_ID}}", linear_id)
         .replace("{{FORMERLY}}", former)
+        .replace("{{DRAINING}}", drain)
     )
     if "{{" in out:
         sys.exit("unfilled placeholder left in block")
@@ -59,7 +64,7 @@ def agents_path(directory: str, name: str = "AGENTS.md") -> str:
 
 
 def cmd_render(args: argparse.Namespace) -> int:
-    sys.stdout.write(render(args.project, args.linear_name, args.linear_id, args.formerly))
+    sys.stdout.write(render(args.project, args.linear_name, args.linear_id, args.formerly, args.draining))
     return 0
 
 
@@ -97,7 +102,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
-    block = render(args.project, args.linear_name, args.linear_id, args.formerly)
+    block = render(args.project, args.linear_name, args.linear_id, args.formerly, args.draining)
     for name in args.file or ["AGENTS.md"]:
         path = agents_path(args.dir, name)
         existing = ""
@@ -139,6 +144,7 @@ def main() -> int:
         p.add_argument("--linear-name", required=True, help="Linear project name")
         p.add_argument("--linear-id", required=True, help="Linear project id, e.g. P-AJ-18")
         p.add_argument("--formerly", help="previous name, kept for one version after a rename")
+        p.add_argument("--draining", help='older Linear project still holding open issues, as "P-AJ-12 Mairn MVP"; remove it once that project is empty')
 
     p_render = sub.add_parser("render")
     project_args(p_render)

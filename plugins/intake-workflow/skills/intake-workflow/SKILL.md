@@ -1,6 +1,6 @@
 ---
 name: intake-workflow
-description: Use when a repo's AGENTS.md contains a SHARED-INTAKE block, or when you are about to create a Linear issue, log a new idea or defect found while coding, create follow-up issues at the end of a task, close the last issue of a Linear Milestone, rename a project, or add the intake flow to another repo.
+description: Use when a repo's AGENTS.md contains a SHARED-INTAKE block, or when you are about to create a Linear issue, log a new idea or defect found while coding, create follow-up issues at the end of a task, close the last issue of a Linear Milestone, rename a project or repo, onboard a project, or add the intake flow to another repo.
 ---
 
 # Intake workflow: Notion first, Linear only when confirmed
@@ -38,25 +38,18 @@ No Notion access? Write the same four parts as a comment on the last issue and s
 
 ## Recipe 4 — rename a project
 
-1. Rename in Linear. The project id does not change, which is why the block carries it.
-2. Rename the `Project` option in the Notion UI for **both** databases. Renaming through an API tool may create a new option and orphan the existing rows; if you must use it, re-point the rows afterwards.
-3. Update the `Project` and `Linear` lines in each repo's block and add `Formerly: <old name>` for one version.
-4. `python3 "$SKILL_DIR/scripts/intake_block.py" check <repo dirs> --expect-project "<new name>"` to find repos still on the old name.
+Rename in Linear (the id stays), rename the `Project` option in the Notion UI for both databases, re-apply the block in each repo with `--formerly "<old>"`, then `intake_block.py check <dirs> --expect-project "<new>"` to find stragglers. A stale name returns zero rows, which is a visible failure; do not fix it by dropping the filter. Full steps: `references/lifecycle.md` section B.
 
-A stale name makes queries return zero rows. That is a visible failure; do not "fix" it by searching without the filter.
+## Recipe 5 — add the flow to a project or repo
 
-## Recipe 5 — add the flow to another repo
+Follow `references/lifecycle.md` section A (new project) or D (another repo of a known project). The short form:
 
-1. Notion: add a `Project` option to Requests and to Slices. Linear: make sure exactly one live project has the fixed name.
-2. Render or apply the block:
-   ```
-   python3 "$SKILL_DIR/scripts/intake_block.py" apply <repo dir> --project "<P>" --linear-name "<N>" --linear-id <P-AJ-n> --claude-pointer
-   ```
-   No checkout (repo edited through the GitHub API)? Use `render` and put the output into `AGENTS.md` yourself.
-3. Public repo: the block contains only the Intake page URL, no database ids, so it is safe.
-4. Check: `intake_block.py check <dirs>`. Then open a new session and ask it for the Pending requests of the project; it should find the right database and filter without being told.
+1. Notion: add the `Project` option to Requests and Slices. Linear: one live project with the fixed name; note its id.
+2. `python3 "$SKILL_DIR/scripts/intake_block.py" apply <repo dir> --project "<P>" --linear-name "<N>" --linear-id <P-AJ-n> --claude-pointer` (add `--file` for each instruction file the repo really uses; add `--draining "P-AJ-n Old name"` while an older project still holds open issues). No checkout? Use `render`.
+3. The block contains the Intake page URL and the two data source ids, which grant no access by themselves, so public repos are fine.
+4. Acceptance test in a fresh session after `git pull`: `references/lifecycle.md` section G.
 
-Do not migrate the old backlog as part of adoption. The rules apply to needs that appear afterwards.
+Legacy content (old Notion trackers, old Linear projects) is swept once per project under section A2; the rules themselves apply to needs that appear afterwards.
 
 ## Red flags — stop and reconsider
 
