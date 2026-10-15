@@ -50,6 +50,8 @@ save_issue { id: "AGT-123", state: "Done",
 
 Plus, only if you genuinely discovered them, up to **3** follow-up issues: title, two lines, priority, `agent-maintained` label. More than three means you are generating backlog spam that every future pull has to page through.
 
+**Exception:** in a repo whose `AGENTS.md` carries a `SHARED-INTAKE` block, do not create follow-up issues. Unconfirmed follow-ups go to the Notion Requests Inbox (see the `intake-workflow` plugin); an issue is created only for a need the Owner has confirmed.
+
 Never write, on any task:
 
 | Pure tax | Why |
@@ -108,7 +110,7 @@ Finish with `--record --note "<one line>"` and commit the state file. A sync tha
 | Unattended | Propose only (comment; never apply) |
 |---|---|
 | Claim, work and close backlog issues | Create projects, initiatives or teams |
-| Create follow-up issues (≤3/task) | Close anything as Cancelled / Won't-do |
+| Create follow-up issues (≤3/task; not in repos with a `SHARED-INTAKE` block) | Close anything as Cancelled / Won't-do |
 | Update an issue's own body, labels, links | Change project target dates or committed scope |
 | Re-prioritise the backlog during a repair pass | Archive or delete issues; edit a human's issue body |
 | One status update per project per sync | Assign work to a human |

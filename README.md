@@ -23,6 +23,7 @@ cp -R plugins/<plugin>/skills/<skill> ~/.claude/skills/
 |---|---|
 | [**behavior-driven-testing**](plugins/behavior-driven-testing) | 门禁全绿但 bug 照样上线 —— 因为测试打在了方便的内部边界上、喂的是 happy synthetic data。规定**在哪里**测、以及什么才算「真的能跑」：真实边界 + 真实数据形状/量级，加上对运行中系统的探针。 |
 | [**linear-roadmap-maintenance**](plugins/linear-roadmap-maintenance) | agent 写完代码没人更新 Linear，而事后用定时任务从 60 个 commit 重建状态要 8–40k token 还容易猜错。把 Linear 变成**任务队列**：按优先级取单 → 做 → 同一 session 关单，维护成本压到一次任务的 ~3%。 |
+| [**intake-workflow**](plugins/intake-workflow) | agent 在 Linear 里删不掉 issue，没讨论清楚的条目一旦建出来就永久留下。需求先在 Notion 讨论，Owner 确认后才建 Linear issue，做完一个 Milestone 写一条结案记录；带每个仓库都放的规则块和渲染 / 检查 / 套用脚本。 |
 
 ## 仓库结构
 
