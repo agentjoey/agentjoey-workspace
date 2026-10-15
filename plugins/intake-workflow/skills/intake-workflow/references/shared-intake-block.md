@@ -5,7 +5,7 @@ Owner decision 2026-10-15. Needs are discussed in Notion first; Linear holds onl
 
 - Project: `{{PROJECT}}` (the value of `Project` in the Requests and Slices databases; always filter by it).
 - Notion data sources: **Requests** `b20c9483-9aab-42fe-bea0-edafb0ee193d`, **Slices** `53cfefa3-69e8-4fcd-99c9-296946092dd2`. Query them directly by id with `Project = {{PROJECT}}`. Do not find them by searching Notion.
-- Linear: team `AJ`, project `{{LINEAR_NAME}}` ({{LINEAR_ID}}). Resolve the project by its id, because names change. A slice is a **Milestone** inside this project, named after the slice goal.{{FORMERLY}}
+- Linear: team `AJ`, project `{{LINEAR_NAME}}` ({{LINEAR_ID}}). Resolve the project by its id, because names change. A slice is a **Milestone** inside this project, named after the slice goal.{{FORMERLY}}{{DRAINING}}
 
 ### Where to look
 
