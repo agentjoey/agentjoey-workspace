@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Render, check and apply the SHARED-INTAKE block in a repo's AGENTS.md.
 
-    intake_block.py render --project P --linear-name N --linear-id P-AJ-18 [--formerly OLD] [--draining "P-AJ-12 Mairn MVP"]
+    intake_block.py render --project P --linear-name N --linear-id P-AJ-18 [--linear-team AJ] [--formerly OLD] [--draining "P-AJ-12 Mairn MVP"]
     intake_block.py check  DIR [DIR ...] [--expect-project P] [--file NAME]
-    intake_block.py apply  DIR --project P --linear-name N --linear-id P-AJ-18 [--formerly OLD] [--draining "P-AJ-12 Mairn MVP"]
+    intake_block.py apply  DIR --project P --linear-name N --linear-id P-AJ-18 [--linear-team AJ] [--formerly OLD] [--draining "P-AJ-12 Mairn MVP"]
                                [--file NAME ...] [--claude-pointer] [--dry-run]
 
 `render` prints the block to stdout (use it when the repo is edited through an API
 instead of a checkout). `check` reports each repo's block version and project lines and
-exits 1 on a missing block, an older version, or a project mismatch. `apply` inserts or
-replaces the block between its markers, leaving everything else untouched, so it is safe
-to run again. Standard library only.
+exits 1 on a missing block, an older version, an unreadable Linear line, or a project
+mismatch. `apply` inserts or replaces the block between its markers, leaving everything
+else untouched, so it is safe to run again. Standard library only.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ TEMPLATE = os.path.join(HERE, "..", "references", "shared-intake-block.md")
 BEGIN_RE = re.compile(r"<!-- BEGIN SHARED-INTAKE v(\d+) -->")
 BLOCK_RE = re.compile(r"<!-- BEGIN SHARED-INTAKE v\d+ -->.*?<!-- END SHARED-INTAKE -->\n?", re.S)
 PROJECT_RE = re.compile(r"^- Project: `([^`]*)`", re.M)
-LINEAR_RE = re.compile(r"^- Linear: team `AJ`, project `([^`]*)` \(([^)]*)\)", re.M)
+LINEAR_RE = re.compile(r"^- Linear: team `([^`]*)`, project `([^`]*)` \(([^)]*)\)", re.M)
 
 
 def template_text() -> str:
@@ -40,7 +40,14 @@ def template_version() -> int:
     return int(match.group(1))
 
 
-def render(project: str, linear_name: str, linear_id: str, formerly: str | None, draining: str | None = None) -> str:
+def render(
+    project: str,
+    linear_name: str,
+    linear_id: str,
+    formerly: str | None,
+    draining: str | None = None,
+    linear_team: str = "AJ",
+) -> str:
     text = template_text()
     former = f" Formerly: `{formerly}`." if formerly else ""
     drain = ""
@@ -49,6 +56,7 @@ def render(project: str, linear_name: str, linear_id: str, formerly: str | None,
         drain = f" Open work from before this flow still sits in project `{drain_name or drain_id}` ({drain_id}): read it for what to build, and create nothing new there."
     out = (
         text.replace("{{PROJECT}}", project)
+        .replace("{{LINEAR_TEAM}}", linear_team)
         .replace("{{LINEAR_NAME}}", linear_name)
         .replace("{{LINEAR_ID}}", linear_id)
         .replace("{{FORMERLY}}", former)
@@ -64,7 +72,7 @@ def agents_path(directory: str, name: str = "AGENTS.md") -> str:
 
 
 def cmd_render(args: argparse.Namespace) -> int:
-    sys.stdout.write(render(args.project, args.linear_name, args.linear_id, args.formerly, args.draining))
+    sys.stdout.write(render(args.project, args.linear_name, args.linear_id, args.formerly, args.draining, args.linear_team))
     return 0
 
 
@@ -88,10 +96,12 @@ def cmd_check(args: argparse.Namespace) -> int:
         project = PROJECT_RE.search(text)
         linear = LINEAR_RE.search(text)
         name = project.group(1) if project else "?"
-        linear_desc = f"{linear.group(1)} ({linear.group(2)})" if linear else "?"
+        linear_desc = f"{linear.group(1)}/{linear.group(2)} ({linear.group(3)})" if linear else "?"
         problems = []
         if version < current:
             problems.append(f"older than v{current}")
+        if not linear:
+            problems.append("Linear line not recognised")
         if args.expect_project and name != args.expect_project:
             problems.append(f"project is {name!r}, expected {args.expect_project!r}")
         status = "DRIFT    " if problems else "ok       "
@@ -102,7 +112,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
-    block = render(args.project, args.linear_name, args.linear_id, args.formerly, args.draining)
+    block = render(args.project, args.linear_name, args.linear_id, args.formerly, args.draining, args.linear_team)
     for name in args.file or ["AGENTS.md"]:
         path = agents_path(args.dir, name)
         existing = ""
@@ -143,6 +153,7 @@ def main() -> int:
         p.add_argument("--project", required=True, help="value of Project in the Notion databases")
         p.add_argument("--linear-name", required=True, help="Linear project name")
         p.add_argument("--linear-id", required=True, help="Linear project id, e.g. P-AJ-18")
+        p.add_argument("--linear-team", default="AJ", help="key of the Linear team that owns the project (default AJ)")
         p.add_argument("--formerly", help="previous name, kept for one version after a rename")
         p.add_argument("--draining", help='older Linear project still holding open issues, as "P-AJ-12 Mairn MVP"; remove it once that project is empty')
 
