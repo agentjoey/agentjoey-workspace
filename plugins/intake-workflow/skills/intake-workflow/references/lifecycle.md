@@ -4,20 +4,20 @@ The standard way to add, change and retire a project in the intake flow. Rule te
 
 Facts every step relies on:
 
-- **Linear project id is the stable key** (`P-AJ-n`). Names change. Agents resolve by id.
+- **Linear project id is the key** (`P-<team key>-n`, for example `P-AJ-18`). Names change; agents resolve by id. The id's prefix follows the owning team, so moving the project to another team changes it (section B2).
 - **Notion `Project` option is the filter value** in Requests and Slices. The block carries its name.
 - The block names no repo. Repo names never matter to the flow.
 - Trashed Linear projects still show up with `includeArchived`. They do not count as a name clash, but their issues stay attached to them.
 
 ## A. Onboard a project (new, or existing with history)
 
-Owner supplies three things: the `Project` name, the Linear project (create it and note its `P-AJ-n`), and the list of repos.
+Owner supplies three things: the `Project` name, the Linear project (create it and note its id and its team key), and the list of repos.
 
 | # | Step | Who |
 |---|---|---|
 | 1 | Confirm the Linear id is live and no other **live** project has the same name (`list_projects`, check the `trashed` flag). | agent |
 | 2 | Add the `Project` option to Requests **and** Slices. | agent |
-| 3 | For each repo: update the checkout first (`git fetch && git merge --ff-only origin/main`), pick the file the agent actually reads (`AGENTS.md`; the tracked `CLAUDE.md` if `AGENTS.md` is gitignored; every file when `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` differ), then `$S apply <dir> --project … --linear-name … --linear-id … [--file …]` on a branch, PR, CI green. | agent |
+| 3 | For each repo: update the checkout first (`git fetch && git merge --ff-only origin/main`), pick the file the agent actually reads (`AGENTS.md`; the tracked `CLAUDE.md` if `AGENTS.md` is gitignored; every file when `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` differ), then `$S apply <dir> --project … --linear-name … --linear-id … [--linear-team <key>] [--file …]` on a branch, PR, CI green. | agent |
 | 4 | Merge the PRs. | Owner |
 | 5 | Legacy sweep (section A2) if the project has history. | agent, Owner rules |
 | 6 | Acceptance test (section G). | Owner, agent reads result |
@@ -37,6 +37,15 @@ Inventory first, read-only, then rule once per project.
 4. Find repos still on the old name: `$S check <dirs> --expect-project "<new name>"`.
 
 Until step 3 is merged a session filters by the old name and sees zero rows. That is the visible failure; never "fix" it by dropping the filter. Drop the `Formerly:` line at the next block upgrade.
+
+## B2. Move a project to another Linear team
+
+Moving the project in Linear keeps the project itself (same UUID, same URL, same milestones) but changes its id prefix: `P-AJ-24` becomes `P-HMT-24` when it moves to team `HMT`. Lookups by the old id still resolved after the move (seen 2026-11-16), but the block should carry the current one. Issues created from then on get the new team's key (`HMT-n`).
+
+1. Read the project in Linear and note the new id and team key.
+2. In every repo of the project: `$S apply <dir> --project … --linear-name … --linear-id <new id> --linear-team <new key>` on a branch, PR, merge. The `Project` value in Notion does not change.
+3. Labels and statuses are per team. Before creating issues in the new team, list its labels and statuses; do not assume the old team's names.
+4. Update any other page that names the old id, such as the project's page under Intake.
 
 ## C. Rename or move a repo
 
