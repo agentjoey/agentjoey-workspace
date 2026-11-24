@@ -1,0 +1,18 @@
+{
+  "name": "engineering-conventions",
+  "version": "1.0.0",
+  "description": "Stop the shared engineering rules from drifting between repos and from being invisible to the harness that needs them: one canonical block, written to the one file codex, kimi, agy, opencode and Claude Code all read, compared byte for byte instead of by eye.",
+  "author": {
+    "name": "agentjoey",
+    "email": "theagentjoey@gmail.com"
+  },
+  "keywords": [
+    "agents-md",
+    "conventions",
+    "multi-agent",
+    "codex",
+    "kimi",
+    "opencode",
+    "drift"
+  ]
+}
