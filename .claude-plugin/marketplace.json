@@ -9,11 +9,6 @@
   },
   "plugins": [
     {
-      "name": "behavior-driven-testing",
-      "source": "./plugins/behavior-driven-testing",
-      "description": "Test at the real boundary with real data and probe the running system before claiming a feature works. A green gate is not 'works'."
-    },
-    {
       "name": "linear-roadmap-maintenance",
       "source": "./plugins/linear-roadmap-maintenance",
       "description": "Make Linear the work queue: pull the top backlog issue by priority, work it, close it in the same session. Reconciliation is the repair path, gated so it costs nothing when the loop is working."
